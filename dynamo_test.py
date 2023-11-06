@@ -8,22 +8,6 @@ from botocore.exceptions import ClientError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define dummy credentials
-dummy_access_key = 'AKIAIOSFODNN7EXAMPLE'
-dummy_secret_key = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
-dummy_region = 'us-west-2'
-
-# Create a session with the dummy credentials
-session = boto3.Session(
-    aws_access_key_id=dummy_access_key,
-    aws_secret_access_key=dummy_secret_key,
-    region_name=dummy_region
-)
-
-# Create a DynamoDB client using the session
-dynamodb = session.client('dynamodb')
-
-
 class Movies:
     """Encapsulates an Amazon DynamoDB table of movie data."""
 
