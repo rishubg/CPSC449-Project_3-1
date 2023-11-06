@@ -57,7 +57,26 @@ class Movies:
             raise
         else:
             return self.table
+    
+    def delete_table(self, table_name):
+        """
+        Deletes an Amazon DynamoDB table.
 
+        :param table_name: The name of the table to delete.
+        """
+        try:
+            table = self.dyn_resource.Table(table_name)
+            table.delete()
+            table.wait_until_not_exists()
+        except ClientError as err:
+            logger.error(
+                "Couldn't delete table %s. Here's why: %s: %s",
+                table_name,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
+    
     def add_movie(self, title, year, plot, rating):
         """
         Adds a movie to the table.
@@ -108,8 +127,8 @@ class Movies:
             return response["Item"]
         
 def dynamoTest():
-     # Initialize a Boto3 DynamoDB resource
-    dynamodb_resource = boto3.resource('dynamodb', region_name='us-west-2')
+    # Initialize a Boto3 DynamoDB resource
+    dynamodb_resource = boto3.resource('dynamodb', endpoint_url='http://localhost:5500')
 
     # Initialize the Movies class with the DynamoDB resource
     movies = Movies(dynamodb_resource)
@@ -121,11 +140,11 @@ def dynamoTest():
     created_table = movies.create_table(table_name)
 
     print("Table Details:")
-    print(f"{created_table}")
+    print(f"Name: {created_table.name}\n")
 
     # Add a movie to the table
     title = "Movie Title"
-    year = 2022
+    year = 2023
     plot = "This is the movie plot."
     rating = 8.5
     movies.add_movie(title, year, plot, rating)
@@ -137,6 +156,10 @@ def dynamoTest():
     print(f"Year: {movie_data['year']}")
     print(f"Plot: {movie_data['info']['plot']}")
     print(f"Rating: {movie_data['info']['rating']}")
+
+    # Delete table
+    movies.delete_table(table_name)
+    print(f"\nTable: '{table_name}' has been deleted.")
 
 if __name__ == "__main__":
     dynamoTest()
