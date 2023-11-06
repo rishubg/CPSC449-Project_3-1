@@ -139,7 +139,7 @@ def dynamoTest():
     # Create the DynamoDB table
     created_table = movies.create_table(table_name)
 
-    print("Table Details:")
+    print("\nCreated Table:")
     print(f"Name: {created_table.name}\n")
 
     # Add a movie to the table
@@ -148,6 +148,8 @@ def dynamoTest():
     plot = "This is the movie plot."
     rating = 8.5
     movies.add_movie(title, year, plot, rating)
+
+    print("Movie item created...\n")
 
     # Read and print the movie from the table
     movie_data = movies.get_movie(title, year)
