@@ -3,9 +3,10 @@ import sqlite3
 import typing
 import collections
 import logging.config
+import boto3
+import redis
 
 from fastapi import Depends, HTTPException, APIRouter, status, Request
-from typing import List
 from enrollment.enrollment_schemas import *
 
 settings = Settings()
@@ -15,20 +16,39 @@ dropped = []
 DEBUG = False
 FREEZE = False
 MAX_WAITLIST = 3
+#Remove when all endpoints are updated
 database = "enrollment/enrollment.db"
-
 
 def get_logger():
     return logging.getLogger(__name__)
 
-
-# Connect to the database
+# Connect to the old database
+# Remove when all endpoints are updated
 def get_db(logger: logging.Logger = Depends(get_logger)):
     with contextlib.closing(sqlite3.connect(database, check_same_thread=False)) as db:
         db.row_factory = sqlite3.Row
         db.set_trace_callback(logger.debug)
         yield db
 
+# Connect to DynamoDB
+def get_dynamodb():
+    return boto3.resource('dynamodb', endpoint_url='http://localhost:5500')
+
+def get_table_resource(dynamodb, table_name):
+    return dynamodb.Table(table_name)
+
+# Connect to Redis
+r = redis.Redis(db=1)
+
+# Redis functions
+# Key patterns
+class_waitlist_key = "class:{}:waitlist"
+student_waitlists_key = "student:{}:waitlists"
+
+# Returns the total count of waitlists the student is currently on
+def get_waitlist_count(student_id):
+    waitlists = r.hlen(student_waitlists_key.format(student_id))
+    return waitlists
 
 # Called when a student is dropped from a class / waiting list
 # and the enrollment place must be reordered
@@ -69,8 +89,11 @@ logging.config.fileConfig(settings.enrollment_logging_config, disable_existing_l
 
 #gets available classes for a student
 @router.get("/students/{student_id}/classes", tags=['Student']) 
-def get_available_classes(student_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def get_available_classes(student_id: int, request: Request):
 
+    db = get_dynamodb()
+
+    # User Authentication
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
     
@@ -88,71 +111,71 @@ def get_available_classes(student_id: int, request: Request, db: sqlite3.Connect
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    cursor = db.cursor()
+    user_table = get_table_resource(db, "enrollment_user")
     # Fetch student data from db
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        JOIN waitlist ON users.uid = waitlist.student_id
-        WHERE uid = ? AND role = ?
-        """, (student_id, 'student')
+    response = user_table.get_item(
+        Key={
+            'id': student_id
+        }
     )
-    student_data = cursor.fetchone()
+
+    student_data = response.get('Item')
 
     #Check if exist
     if not student_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
     
-    # Execute the SQL query to retrieve available classes
+    waitlist_count = get_waitlist_count(student_id)
+
+    class_table = get_table_resource(db, "enrollment_class")
     # If max waitlist, don't show full classes with open waitlists
-    if student_data['waitlist_count'] >= MAX_WAITLIST:
-        cursor.execute("""
-            SELECT class.id AS class_id, class.name AS class_name, class.course_code,
-                class.section_number, class.current_enroll, class.max_enroll,
-                department.id AS department_id, department.name AS department_name,
-                users.uid AS instructor_id, users.name AS instructor_name
-            FROM class
-            JOIN department ON class.department_id = department.id
-            JOIN instructor_class ON class.id = instructor_class.class_id
-            JOIN users ON instructor_class.instructor_id = users.uid
-            WHERE class.current_enroll < class.max_enroll
-        """)
+    
+    # Technically using scan is inefficient and it would be better to use gsi (global secondary indexes),
+    # but that would require a lot of extra work when initializing the dynamoDB database which I don't
+    # want to do. But if any of you guys want to do it feel free.
+    if waitlist_count >= MAX_WAITLIST:
+        response = class_table.scan(
+            FilterExpression="current_enroll < max_enroll"
+        )
+        items = response['Items']
+
     # Else show all open classes or full classes with open waitlists
     else:
-        cursor.execute("""
-            SELECT class.id AS class_id, class.name AS class_name, class.course_code,
-                class.section_number, class.current_enroll, class.max_enroll,
-                department.id AS department_id, department.name AS department_name,
-                users.uid AS instructor_id, users.name AS instructor_name
-            FROM class
-            JOIN department ON class.department_id = department.id
-            JOIN instructor_class ON class.id = instructor_class.class_id
-            JOIN users ON instructor_class.instructor_id = users.uid
-            WHERE class.current_enroll < class.max_enroll + 15   
-        """)
+        response = class_table.scan()
 
-    class_data = cursor.fetchall()
+        items = [
+            item for item in response['Items']
+            if int(item['current_enroll']) < int(item['max_enroll']) + 15
+        ]
 
-    # Create a list to store the Class_Info instances
-    class_info_list = []
+    # Create a list to store the Class instances
+    class_instances = []
 
-    # Iterate through the query results and create Class_Info instances
-    for row in class_data:
-        class_info = Class_Info(
-            id=row['class_id'],
-            name=row['class_name'],
-            course_code=row['course_code'],
-            section_number=row['section_number'],
-            current_enroll=row['current_enroll'],
-            max_enroll=row['max_enroll'],
-            department=Department(id=row['department_id'], name=row['department_name']),
-            instructor=Instructor(id=row['instructor_id'], name=row['instructor_name'])
+    # Iterate through the query results and create Class instances
+
+    # It would make more sense to create a new base model that doesn't include
+    # enrolled or dropped students cause a student looking at which classes to add doesn't need
+    # that information, also to replace instructor id with their actual name,
+    # but for now I'm just using this for reference so you guys have an idea on how to update the
+    # endpoints. If someone wants to make this better feel free. Otherwise I'll get back to it in the 
+    # next couple of days.
+    class_instances = []
+    for item in items:
+        class_instance = Class(
+            id=item['id'],
+            name=item['name'],
+            course_code=item['course_code'],
+            section_number=item['section_number'],
+            current_enroll=item['current_enroll'],
+            max_enroll=item['max_enroll'],
+            department=item['department'],
+            instructor_id=item['instructor_id'],
+            enrolled=item['enrolled'],
+            dropped=item['dropped']
         )
-        class_info_list.append(class_info)
+        class_instances.append(class_instance)
 
-    return {"Classes": class_info_list}
+    return {"Classes": class_instances}
 
 # Enrolls a student into an available class,
 # or will automatically put the student on an open waitlist for a full class
