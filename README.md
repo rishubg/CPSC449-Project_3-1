@@ -50,8 +50,8 @@
 
 # Enrollment Service testing variables
 
-- student_id 1 is on 3 waitlists (class_id: 8, 4, 13)
-- class_id 2 (with instructor_id 2) has 4 dropped students
+- student_id 1 is on 3 waitlists (class_id: 4, 6, 8)
+- class_id 1 (with instructor_id 501) has 4 dropped students
 - class_id 4, 6, 8, 13, 14 are all full, but have open waitlists
 - class_id 12 is fully enrolled, with a full waitlist
 - all classes have a default max_enroll value of 30
@@ -69,12 +69,6 @@
 - Users 551 - 600 also have the 'registrar' role
 
 - there are useful debug endpoints that you can use to view information on what is contained within the database
-
-# windows execution policy
-
-- if you are running this on a windows machine you may have to set the execution policy to run your virutal enviroment
-
-` Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process`
 
 # Overview of files
 
