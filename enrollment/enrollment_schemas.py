@@ -56,12 +56,16 @@ class Enrolled(BaseModel):
     position: int
 
 class Class(BaseModel):
+    id: int
     name: str
     course_code: str
     section_number: int
     current_enroll: int
     max_enroll: int
-    department_id: int
+    department: str
+    instructor_id: int
+    enrolled: List
+    dropped: List
 
 class Class_Registrar(BaseModel):
     name: str
@@ -82,7 +86,7 @@ class Dropped(BaseModel):
     student_id: int
 
 class User_info(BaseModel):
-    uid: int
+    id: int
     name: str
     roles: List
 
