@@ -452,12 +452,6 @@ def create_database():
     add_waitlists(6, 1, 1)
     add_waitlists(8, 1, 1)
 
-<<<<<<< HEAD
-=======
-    Items = get_classes_with_current_enroll_less_than_max()
-    print(Items)
-
->>>>>>> cfdce03be1faf06f9ec382b3653eb85d7624fde7
     if DEBUG:
         c_response = class_table.scan()
         u_response = user_table.scan()
