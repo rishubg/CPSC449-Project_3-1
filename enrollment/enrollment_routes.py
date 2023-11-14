@@ -180,8 +180,11 @@ def get_available_classes(student_id: int, request: Request):
 # Enrolls a student into an available class,
 # or will automatically put the student on an open waitlist for a full class
 @router.post("/students/{student_id}/classes/{class_id}/enroll", tags=['Student'])
-def enroll_student_in_class(student_id: int, class_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     
+    db = get_dynamodb()
+
+    # User Authentication
     if request.headers.get("X-User"):
 
         current_user = int(request.headers.get("X-User"))
@@ -200,39 +203,59 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request, db
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
-    cursor = db.cursor()
-
-    # Check if the student exists in the database
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        JOIN waitlist ON users.uid = waitlist.student_id
-        WHERE uid = ? AND role = ?
-        """, (student_id, 'student')
+    ### working on this still  
+    user_table = get_table_resource(db, "enrollment_user")
+    class_table = get_table_resource(db, "enrollment_class")
+    response_1 = user_table.get_item(
+        key={
+            'id': student_id
+        }
     )
-    student_data = cursor.fetchone()
+    response_2 = class_table.get_item(
+        key={
+            'id': class_id
+        }
+    )
+    student_data = response_1.get('Item')
+    class_data = response_2.get('Item')
 
-    # Check if the class exists in the database
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+    ## gets replaced with the code above this^
+    # # Check if the student exists in the database
+    # cursor.execute(
+    #     """
+    #     SELECT * FROM users
+    #     JOIN user_role ON users.uid = user_role.user_id
+    #     JOIN role ON user_role.role_id = role.rid
+    #     JOIN waitlist ON users.uid = waitlist.student_id
+    #     WHERE uid = ? AND role = ?
+    #     """, (student_id, 'student')
+    # )
+    # student_data = cursor.fetchone()
+
+    ## gets replaced with the code above this^
+    # # Check if the class exists in the database
+    # cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
+    # class_data = cursor.fetchone()
 
     if not student_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
+    
+    # # Check if student is already enrolled in the class
+    # cursor.execute("""SELECT * FROM enrollment
+    #                 JOIN class ON enrollment.class_id = class.id
+    #                 WHERE class_id = ? AND student_id = ?
+    #                 """, (class_id, student_id))
+    # existing_enrollment = cursor.fetchone()
 
-    # Check if student is already enrolled in the class
-    cursor.execute("""SELECT * FROM enrollment
-                    JOIN class ON enrollment.class_id = class.id
-                    WHERE class_id = ? AND student_id = ?
-                    """, (class_id, student_id))
-    existing_enrollment = cursor.fetchone()
-
-    if existing_enrollment:
+    # if existing_enrollment:
+    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
+    
+    if student_data and class_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
     
     # Increment enrollment number in the database
     new_enrollment = class_data['current_enroll'] + 1
+    
     cursor.execute("UPDATE class SET current_enroll = ? WHERE id = ?", (new_enrollment, class_id))
 
     # Add student to enrolled class in the database
