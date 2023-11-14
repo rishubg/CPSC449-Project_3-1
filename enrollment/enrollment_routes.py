@@ -255,7 +255,8 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     
     # Increment enrollment number in the database
     new_enrollment = class_data['current_enroll'] + 1
-    
+
+    ### still working on these last few cursoer executes
     cursor.execute("UPDATE class SET current_enroll = ? WHERE id = ?", (new_enrollment, class_id))
 
     # Add student to enrolled class in the database
