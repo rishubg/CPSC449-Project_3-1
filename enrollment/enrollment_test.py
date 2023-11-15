@@ -3,7 +3,9 @@ import boto3
 import logging
 
 from botocore.exceptions import ClientError
-from enrollment_schemas import Class, Enrollment, Dropped, User_info
+from enrollment_schemas import Class, Enroll, Dropped, User_info
+from enrollment_dynamo import Enrollment, PartiQL
+from pprint import pprint
 
 # turn debug print statements on or off
 DEBUG = False
@@ -225,6 +227,7 @@ sample_classes = [
     ),
 ]
 
+# Enroll students in classes based on current_enroll
 place = 1
 sid = 1
 for class_data in sample_classes:
@@ -260,7 +263,7 @@ place = 1
 sid = 1
 for index, class_data in enumerate(sample_classes, start = 1):
     while place <= class_data.current_enroll:
-        sample_enrollments.append(Enrollment(
+        sample_enrollments.append(Enroll(
             placement=place,
             class_id=index,
             student_id=sid
@@ -268,103 +271,6 @@ for index, class_data in enumerate(sample_classes, start = 1):
         sid += 1
         place += 1
     place = 1
-
-# -------------------------------DYNAMODB INITIALIZATION---------------------------------------
-
-# Check if a table exists in DynamoDB
-def check_table_exists(table_name):
-    dynamodb_client = dynamodb.meta.client
-    try:
-        dynamodb_client.describe_table(TableName=table_name)
-        if DEBUG:
-            print(f"Table {table_name} exists in DynamoDB.")
-        return True
-    except dynamodb_client.exceptions.ResourceNotFoundException:
-        if DEBUG:
-            print(f"Table {table_name} does not exist in DynamoDB.")
-        return False
-
-# Create tables in DynamoDB
-def create_dynamodb_tables():
-    # Creating tables in DynamoDB
-    try:
-        class_table = dynamodb.create_table(
-            TableName=table_prefix + "class",
-            KeySchema=[
-                {'AttributeName': 'id', 'KeyType': 'HASH'}
-            ],
-            AttributeDefinitions=[
-                {'AttributeName': 'id', 'AttributeType': 'N'},
-            ],
-            ProvisionedThroughput={
-                'ReadCapacityUnits': 10,
-                'WriteCapacityUnits': 10
-            }
-        )
-        class_table.wait_until_exists()    
-    except ClientError as err:
-        logger.error(
-            "Couldn't create table %s. Here's why: %s: %s",
-            class_table,
-            err.response["Error"]["Code"],
-            err.response["Error"]["Message"],
-        )
-        raise
-    
-    try:
-        user_table = dynamodb.create_table(
-            TableName=table_prefix + "user",
-            KeySchema=[
-                {'AttributeName': 'id', 'KeyType': 'HASH'}
-            ],
-            AttributeDefinitions=[
-                {'AttributeName': 'id', 'AttributeType': 'N'},
-            ],
-            ProvisionedThroughput={
-                'ReadCapacityUnits': 10,
-                'WriteCapacityUnits': 10
-            }
-        )
-        user_table.wait_until_exists()    
-    except ClientError as err:
-        logger.error(
-            "Couldn't create table %s. Here's why: %s: %s",
-            user_table,
-            err.response["Error"]["Code"],
-            err.response["Error"]["Message"],
-        )
-        raise
-
-    if DEBUG:
-        print("Tables created successfully")
-
-
-# Delete tables in DynamoDB
-def delete_dynamo_table(table_name):
-    try:
-
-        table_name.delete()
-        table_name.wait_until_not_exists()
-    except ClientError as err:
-        logger.error(
-            "Couldn't delete table %s. Here's why: %s: %s",
-            table_name,
-            err.response["Error"]["Code"],
-            err.response["Error"]["Message"],
-        )
-        raise
-
-
-# Add data to the enrollment_class table
-def add_class_items(table_name):
-    for class_data in sample_classes:
-        table_name.put_item(Item=dict(class_data))
-
-
-# Add data to the enrollment_user table
-def add_user_items(table_name):
-    for user_data in sample_users:
-        table_name.put_item(Item=dict(user_data))
 
 
 #------------------------------------REDIS INITIALIZATION-----------------------------------------------------
@@ -410,32 +316,56 @@ def get_all_student_waitlists():
 # ---------------------------- Enrollment Initialization ----------------------------------------
 
 
-def get_classes_with_current_enroll_less_than_max():
-    table = dynamodb.Table(table_prefix + "class")
-
-    response = table.scan(
-        FilterExpression="current_enroll < max_enroll"
-    )
-
-    return response['Items']
-
-def create_database():
-    classes = "enrollment_class"
-    users = "enrollment_user"
-    class_table = dynamodb.Table(classes)
-    user_table = dynamodb.Table(users)
+def create_database(enrollment, wrapper):
+    classes = "class"
+    users = "user"
+    class_table = table_prefix + classes
+    user_table = table_prefix + users
     
     # Check if the tables exist, if they do delete them
-    if check_table_exists(classes):
-        delete_dynamo_table(class_table)
-        delete_dynamo_table(user_table)
+    if enrollment.check_table_exists(class_table):
+        enrollment.delete_table(classes)
+        enrollment.delete_table(users)
 
     # create the tables
-    create_dynamodb_tables()
+    enrollment.create_table(classes)
+    enrollment.create_table(users)
 
-    # initialize the table with sample data
-    add_class_items(class_table)
-    add_user_items(user_table)
+    # initialize the tables with sample data
+    for class_data in sample_classes:
+        wrapper.run_partiql(
+        f"""INSERT INTO \"{class_table}\" VALUE 
+        {{
+            'id': ?, 
+            'name': ?, 
+            'course_code': ?, 
+            'section_number': ?, 
+            'current_enroll': ?, 
+            'max_enroll': ?, 
+            'department': ?, 
+            'instructor_id': ?, 
+            'enrolled': ?, 
+            'dropped': ?
+        }}""",
+        [
+            class_data.id,
+            class_data.name,
+            class_data.course_code,
+            class_data.section_number,
+            class_data.current_enroll,
+            class_data.max_enroll,
+            class_data.department,
+            class_data.instructor_id,
+            class_data.enrolled,
+            class_data.dropped
+        ],
+    )
+    
+    for user_data in sample_users:
+        wrapper.run_partiql(
+            f"""INSERT INTO \"{user_table}\" VALUE {{'id': ?, 'name': ?, 'roles': ?}}""",
+            [user_data.id, user_data.name, user_data.roles],
+        )
 
     # flush all data from the redis db
     r.flushdb()
@@ -453,18 +383,23 @@ def create_database():
     add_waitlists(8, 1, 1)
 
     if DEBUG:
-        c_response = class_table.scan()
-        u_response = user_table.scan()
-
+        debug_class = []
+        debug_user = []
         # Print all classes
-        for item in c_response['Items']:
-            print("Class Items: \n")
-            print(item)
+        for class_data in sample_classes:
+            output = wrapper.run_partiql(
+                f'SELECT * FROM "{class_table}" WHERE id=?', [class_data.id]
+            )
+            debug_class.append(output["Items"])
+        print("\nClass Table: \n", debug_class)
     
         # Print all users
-        for item in u_response['Items']:
-            print("User Items: \n")
-            print(item)
+        for user_data in sample_users:
+            output = wrapper.run_partiql(
+                f'SELECT * FROM "{user_table}" WHERE id=?', [user_data.id]
+            )
+            debug_user.append(output["Items"])
+        print("\nUser Table: \n", debug_user)
 
         all_class_waitlists = get_all_class_waitlists()
         all_student_waitlists = get_all_student_waitlists()
@@ -474,5 +409,9 @@ def create_database():
 
 
 if __name__ == "__main__":
-    create_database()
-
+    try:
+        enrollment = Enrollment(dynamodb)
+        wrapper = PartiQL(dynamodb)
+        create_database(enrollment, wrapper)
+    except Exception as e:
+        print(f"Something went wrong with the database creation! Here's what: {e}")

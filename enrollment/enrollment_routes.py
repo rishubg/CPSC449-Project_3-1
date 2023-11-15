@@ -8,11 +8,14 @@ import redis
 
 from fastapi import Depends, HTTPException, APIRouter, status, Request
 from enrollment.enrollment_schemas import *
+from enrollment.enrollment_dynamo import PartiQL
 
 settings = Settings()
 router = APIRouter()
 dropped = []
 
+CLASS_TABLE = "enrollment_class"
+USER_TABLE = "enrollment_user"
 DEBUG = False
 FREEZE = False
 MAX_WAITLIST = 3
@@ -36,6 +39,10 @@ def get_dynamodb():
 
 def get_table_resource(dynamodb, table_name):
     return dynamodb.Table(table_name)
+
+# Create wrapper for PartiQL queries
+def get_wrapper(dynamodb):
+    return PartiQL(dynamodb)
 
 # Connect to Redis
 r = redis.Redis(db=1)
@@ -92,6 +99,12 @@ logging.config.fileConfig(settings.enrollment_logging_config, disable_existing_l
 def get_available_classes(student_id: int, request: Request):
 
     db = get_dynamodb()
+    # initialize the wrapper for partiql. There are two separate functions for partiql,
+    # run_partiql, and run_partiql_statement. Use run_partiql if you are using a statement and parameters.
+    # Use run_partiql_statement if you are just using a statement. Both are used in this endpoint if you
+    # need examples on how to use them. You may also look in the 'enrollment_dynamo.py' file for how it was
+    # implemented.
+    wrapper = get_wrapper(db)
 
     # User Authentication
     if request.headers.get("X-User"):
@@ -111,7 +124,7 @@ def get_available_classes(student_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    user_table = get_table_resource(db, "enrollment_user")
+    user_table = get_table_resource(db, USER_TABLE)
     # Fetch student data from db
     response = user_table.get_item(
         Key={
@@ -127,55 +140,56 @@ def get_available_classes(student_id: int, request: Request):
     
     waitlist_count = get_waitlist_count(student_id)
 
-    class_table = get_table_resource(db, "enrollment_class")
     # If max waitlist, don't show full classes with open waitlists
-    
-    # Technically using scan is inefficient and it would be better to use gsi (global secondary indexes),
-    # but that would require a lot of extra work when initializing the dynamoDB database which I don't
-    # want to do. But if any of you guys want to do it feel free.
     if waitlist_count >= MAX_WAITLIST:
-        response = class_table.scan(
-            FilterExpression="current_enroll < max_enroll"
+        output = wrapper.run_partiql_statement(
+            f'SELECT * FROM "{CLASS_TABLE}" WHERE current_enroll <= max_enroll'
         )
-        items = response['Items']
 
     # Else show all open classes or full classes with open waitlists
     else:
-        response = class_table.scan()
-
-        items = [
-            item for item in response['Items']
-            if int(item['current_enroll']) < int(item['max_enroll']) + 15
-        ]
+        # All classes have a max_enroll value of 30, and a max waitlist value of 15,
+        # so 30 + 15 = 45. Technically classes can be created with any max_enroll value,
+        # but I cant use partiql with arithmatic, for example I cant do
+        # "WHERE current_enroll < (max_enroll + 15)". So for now its just 45
+        output = wrapper.run_partiql_statement(
+            f'SELECT * FROM "{CLASS_TABLE}" WHERE current_enroll < 45',
+        )
 
     # Create a list to store the Class instances
     class_instances = []
 
     # Iterate through the query results and create Class instances
-
-    # It would make more sense to create a new base model that doesn't include
-    # enrolled or dropped students cause a student looking at which classes to add doesn't need
-    # that information, also to replace instructor id with their actual name,
-    # but for now I'm just using this for reference so you guys have an idea on how to update the
-    # endpoints. If someone wants to make this better feel free. Otherwise I'll get back to it in the 
-    # next couple of days.
-    class_instances = []
-    for item in items:
-        class_instance = Class(
+    for item in output['Items']:
+        # get instructor information
+        result = wrapper.run_partiql(
+            f'SELECT * FROM "{USER_TABLE}" WHERE id=?',
+            [item['instructor_id']]
+        )
+        # Get waitlist information
+        if item['current_enroll'] > item['max_enroll']:
+            current_enroll = item['max_enroll']
+            waitlist = item['current_enroll'] - item['max_enroll']
+        else:
+            current_enroll = item['current_enroll']
+            waitlist = 0
+        # Create the class instance
+        class_instance = Class_Enroll(
             id=item['id'],
             name=item['name'],
             course_code=item['course_code'],
             section_number=item['section_number'],
-            current_enroll=item['current_enroll'],
+            current_enroll=current_enroll,
             max_enroll=item['max_enroll'],
             department=item['department'],
-            instructor_id=item['instructor_id'],
-            enrolled=item['enrolled'],
-            dropped=item['dropped']
+            instructor=Instructor(id=item['instructor_id'], name=result['Items'][0]['name']),
+            current_waitlist=waitlist,
+            max_waitlist=15
         )
         class_instances.append(class_instance)
 
     return {"Classes": class_instances}
+
 
 # Enrolls a student into an available class,
 # or will automatically put the student on an open waitlist for a full class
