@@ -379,8 +379,8 @@ def create_database(enrollment, wrapper):
     # add student_id 1 to three different waitlists
     # Used for testing purposes so at least 1 student has max waitlists
     add_waitlists(4, 1, 3)
-    add_waitlists(6, 1, 1)
     add_waitlists(8, 1, 1)
+    add_waitlists(13, 1, 6)
 
     if DEBUG:
         debug_class = []

@@ -50,7 +50,7 @@
 
 # Enrollment Service testing variables
 
-- student_id 1 is on 3 waitlists (class_id: 4, 6, 8)
+- student_id 1 is on 3 waitlists (class_id: 4, 8, 13)
 - class_id 1 (with instructor_id 501) has 4 dropped students
 - class_id 4, 6, 8, 13, 14 are all full, but have open waitlists
 - class_id 12 is fully enrolled, with a full waitlist
