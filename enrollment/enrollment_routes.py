@@ -203,7 +203,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
-    ### working on this still ###
+   # Fetch student data  and class data from db
     user_table = get_table_resource(db, "enrollment_user")
     class_table = get_table_resource(db, "enrollment_class")
     response_1 = user_table.get_item(
@@ -219,37 +219,11 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     student_data = response_1.get('Item')
     class_data = response_2.get('Item')
 
-    ### gets replaced with the code above this^ ###
-    # # Check if the student exists in the database
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM users
-    #     JOIN user_role ON users.uid = user_role.user_id
-    #     JOIN role ON user_role.role_id = role.rid
-    #     JOIN waitlist ON users.uid = waitlist.student_id
-    #     WHERE uid = ? AND role = ?
-    #     """, (student_id, 'student')
-    # )
-    # student_data = cursor.fetchone()
-
-    ### gets replaced with the code above this^ ###
-    # # Check if the class exists in the database
-    # cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    # class_data = cursor.fetchone()
-
+    # Check if the class and student exists in the database
     if not student_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
     
-    # # Check if student is already enrolled in the class
-    # cursor.execute("""SELECT * FROM enrollment
-    #                 JOIN class ON enrollment.class_id = class.id
-    #                 WHERE class_id = ? AND student_id = ?
-    #                 """, (class_id, student_id))
-    # existing_enrollment = cursor.fetchone()
-
-    # if existing_enrollment:
-    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
-    
+    # Check if student is already enrolled in the class
     if student_data and class_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
 
@@ -276,14 +250,15 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     # cursor.execute("INSERT INTO enrollment (placement, student_id, class_id) VALUES (?, ?, ?)", (new_enrollment, student_id, class_id))
     
     # Remove student from dropped table if valid
-    if class_data['dropped': [student_data]]:
-        class_table.update_item(
-            Key={
-                'id': class_id
-            },
-            UpdateExpression='DELETE dropped :student',
-            ExpressionAttributeValues={':student': {student_data}}
-        )
+    if class_data:
+        if student_id in class_table.get('dropped', []):
+            class_table.update_item(
+                Key={
+                    'id': class_id
+                },
+                UpdateExpression='DELETE dropped :student',
+                ExpressionAttributeValues={':student': {student_data}}
+            )
     # cursor.execute("""SELECT * FROM dropped 
     #                 WHERE class_id = ? AND student_id = ?
     #                 """, (class_id, student_id))
@@ -297,7 +272,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     # freeze is in place
     ## code goes here
     waitlist_count = get_waitlist_count(student_id)
-    if class_data['current_enroll'] >= class_data['max_enroll']:
+    if class_data.get('current_enroll') >= class_data.get('max_enroll'):
         if not FREEZE:
             if waitlist_count >= MAX_WAITLIST:
                 class_table.update_item(
