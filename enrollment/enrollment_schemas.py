@@ -67,6 +67,14 @@ class Class(BaseModel):
     enrolled: List
     dropped: List
 
+class Class_SQL(BaseModel):
+    name: str
+    course_code: str
+    section_number: int
+    current_enroll: int
+    max_enroll: int
+    department_id: int
+
 class Class_Registrar(BaseModel):
     name: str
     course_code: str

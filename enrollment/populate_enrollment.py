@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from enrollment_schemas import Class, Enrollment, Dropped
+from enrollment_schemas import Class_SQL, Enroll, Dropped
 
 database = "enrollment/enrollment.db"
 
@@ -40,7 +40,7 @@ for male in mname:
     last += 1
 
 sample_classes = [
-    Class(
+    Class_SQL(
         name="Web Back-End Engineering",
         course_code="449",
         section_number=1,
@@ -48,7 +48,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Web Back-End Engineering",
         course_code="449",
         section_number=2,
@@ -56,7 +56,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Web Front-End Engineering",
         course_code="349",
         section_number=1,
@@ -64,7 +64,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Introduction to Computer Science",
         course_code="120",
         section_number=1,
@@ -72,7 +72,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Calculus I",
         course_code="150A",
         section_number=1,
@@ -80,7 +80,7 @@ sample_classes = [
         max_enroll=30,
         department_id=4,
     ),
-    Class(
+    Class_SQL(
         name="Calculus II",
         course_code="150B",
         section_number=1,
@@ -88,7 +88,7 @@ sample_classes = [
         max_enroll=30,
         department_id=3,
     ),
-    Class(
+    Class_SQL(
         name="World History",
         course_code="181",
         section_number=1,
@@ -96,7 +96,7 @@ sample_classes = [
         max_enroll=30,
         department_id=6,
     ),
-    Class(
+    Class_SQL(
         name="Anatomy & Physiology",
         course_code="211",
         section_number=1,
@@ -104,7 +104,7 @@ sample_classes = [
         max_enroll=30,
         department_id=7,
     ),
-    Class(
+    Class_SQL(
         name="Earth Science",
         course_code="171",
         section_number=1,
@@ -112,7 +112,7 @@ sample_classes = [
         max_enroll=30,
         department_id=8,
     ),
-    Class(
+    Class_SQL(
         name="Advanced C++",
         course_code="421",
         section_number=1,
@@ -120,7 +120,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Python Programming",
         course_code="222",
         section_number=1,
@@ -128,7 +128,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Python Programming",
         course_code="222",
         section_number=2,
@@ -136,7 +136,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Python Programming",
         course_code="222",
         section_number=3,
@@ -144,7 +144,7 @@ sample_classes = [
         max_enroll=30,
         department_id=2,
     ),
-    Class(
+    Class_SQL(
         name="Python Programming",
         course_code="222",
         section_number=4,
@@ -159,7 +159,7 @@ place = 1
 sid = 1
 for index, class_data in enumerate(sample_classes, start = 1):
     while place <= class_data.current_enroll:
-        sample_enrollments.append(Enrollment(
+        sample_enrollments.append(Enroll(
             placement=place,
             class_id=index,
             student_id=sid
