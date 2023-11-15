@@ -238,29 +238,21 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     if not student_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
     
-    ### Still need to fix bug
-        # output = wrapper.run_partiql_statement(
-        #     f'SELECT * FROM "{CLASS_TABLE}" WHERE current_enroll <= max_enroll'
-        # )
     # Check if student is already enrolled in the class
-    # enrolled_student = class_table.query(
-    #     KeyConditionExpression='class_id = :class_id AND student_id = :student_id',
-    #     ExpressionAttributeValues={':class_id': class_id, ':student_id': student_id}
-    # )
-    enrolled_student = wrapper.run_partiql_statement(
-        f'SELECT * FROM "{CLASS_TABLE}" WHERE class_id = {class_data["id"]} AND student_id = {student_data["id"]}'
+    # get student information
+    student_enrollment = wrapper.run_partiql(
+        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
+        [class_id]
     )
+    # check the information in the table
+    for item in student_enrollment["Items"]:
+        enrolled_students = item.get('enrolled', [])
+        if student_id in enrolled_students:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
 
-    # retrieve the result items
-    existing_enrollment = enrolled_student.get('Items')
-
-    if existing_enrollment:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
-
-
-    ### still working on these last few cursoer executes ###
     # Increment enrollment number in the database
     new_enrollment = class_data.get('current_enroll', 0) + 1
+
     class_table.update_item(
         Key={
             'id': class_id
@@ -287,11 +279,12 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
         )
 
     # Check if the class is full, add student to waitlist if no
-    # freeze is in place
     ## code goes here
     if new_enrollment >= class_data.get('max_enroll', 0):
+        # freeze is in place
         if not FREEZE:
-            if len(student_data.get('waitlist_count', [])) < MAX_WAITLIST and new_enrollment < class_data.get('max_enroll', 0) + 15:
+            waitlist_count = get_waitlist_count(student_id)
+            if waitlist_count < MAX_WAITLIST and new_enrollment < class_data.get('max_enroll', 0) + 15:
                 user_table.update_item(
                     Key={'id': student_id},
                     UpdateExpression='SET waitlist_count = if_not_exists(waitlist_count, :zero) + :waitlist_count',
@@ -304,7 +297,6 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
             return {"message": "Unable to add student to waitlist due to administrative freeze"}
 
     return {"message": "Student successfully enrolled in class"}
-    
 
 
 # Have a student drop a class they're enrolled in
