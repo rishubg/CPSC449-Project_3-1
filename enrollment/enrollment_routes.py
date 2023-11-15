@@ -239,8 +239,8 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     
     ### Still need to fix bug
     # Check if student is already enrolled in the class
-    # if student_data and class_data:
-    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
+    if student_data and class_data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
 
     ### still working on these last few cursoer executes ###
     # Increment enrollment number in the database
