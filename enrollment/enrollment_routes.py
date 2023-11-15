@@ -203,23 +203,23 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
-    ### working on this still  
+    ### working on this still ###
     user_table = get_table_resource(db, "enrollment_user")
     class_table = get_table_resource(db, "enrollment_class")
     response_1 = user_table.get_item(
-        key={
+        Key={
             'id': student_id
         }
     )
     response_2 = class_table.get_item(
-        key={
+        Key={
             'id': class_id
         }
     )
     student_data = response_1.get('Item')
     class_data = response_2.get('Item')
 
-    ## gets replaced with the code above this^
+    ### gets replaced with the code above this^ ###
     # # Check if the student exists in the database
     # cursor.execute(
     #     """
@@ -232,7 +232,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     # )
     # student_data = cursor.fetchone()
 
-    ## gets replaced with the code above this^
+    ### gets replaced with the code above this^ ###
     # # Check if the class exists in the database
     # cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
     # class_data = cursor.fetchone()
@@ -252,42 +252,81 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     
     if student_data and class_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
-    
+
+    ### still working on these last few cursoer executes ###
     # Increment enrollment number in the database
     new_enrollment = class_data['current_enroll'] + 1
-
-    ### still working on these last few cursoer executes
-    cursor.execute("UPDATE class SET current_enroll = ? WHERE id = ?", (new_enrollment, class_id))
+    class_table.update_item(
+        Key={
+            'id': class_id
+        },
+        UpdateExpression="SET current_enroll = :enroll",
+        ExpressionAttributeValues={':enroll': new_enrollment}
+    )
+    # cursor.execute("UPDATE class SET current_enroll = ? WHERE id = ?", (new_enrollment, class_id))
 
     # Add student to enrolled class in the database
-    cursor.execute("INSERT INTO enrollment (placement, student_id, class_id) VALUES (?, ?, ?)", (new_enrollment, student_id, class_id))
+    class_table.put_item(
+        Item={
+            'current_enroll': new_enrollment,
+            'enrolled': [student_data],
+            'id': class_id
+        }
+    )
+    # cursor.execute("INSERT INTO enrollment (placement, student_id, class_id) VALUES (?, ?, ?)", (new_enrollment, student_id, class_id))
     
     # Remove student from dropped table if valid
-    cursor.execute("""SELECT * FROM dropped 
-                    WHERE class_id = ? AND student_id = ?
-                    """, (class_id, student_id))
-    dropped_data = cursor.fetchone()
-    if dropped_data:
-        cursor.execute("""DELETE FROM dropped 
-                    WHERE class_id = ? AND student_id = ?
-                    """, (class_id, student_id))
+    if class_data['dropped': [student_data]]:
+        class_table.update_item(
+            Key={
+                'id': class_id
+            },
+            UpdateExpression='DELETE dropped :student',
+            ExpressionAttributeValues={':student': {student_data}}
+        )
+    # cursor.execute("""SELECT * FROM dropped 
+    #                 WHERE class_id = ? AND student_id = ?
+    #                 """, (class_id, student_id))
+    # dropped_data = cursor.fetchone()
+    # if dropped_data:
+    #     cursor.execute("""DELETE FROM dropped 
+    #                 WHERE class_id = ? AND student_id = ?
+    #                 """, (class_id, student_id))
 
     # Check if the class is full, add student to waitlist if no
     # freeze is in place
+    ## code goes here
+    waitlist_count = get_waitlist_count(student_id)
     if class_data['current_enroll'] >= class_data['max_enroll']:
         if not FREEZE:
-            if student_data['waitlist_count'] < MAX_WAITLIST and class_data['current_enroll'] < class_data['max_enroll'] + 15:
-                cursor.execute("""UPDATE waitlist 
-                                SET waitlist_count = waitlist_count + 1
-                                WHERE student_id = ?""",(student_id,))
-                db.commit()
+            if waitlist_count >= MAX_WAITLIST:
+                class_table.update_item(
+                    Key={
+                        'id': class_id
+                    },
+                    UpdateExpression='SET waitlist = list_append(waitlist, :student)',
+                    ExpressionAttributeValues={':student': [{'student_id': student_id}]}
+                )
                 return {"message": "Student added to the waitlist"}
             else:
                 return {"message": "Unable to add student to waitlist due to already having max number of waitlists"}
         else:
             return {"message": "Unable to add student to waitlist due to administrative freeze"}
     
-    db.commit()
+    # if class_data['current_enroll'] >= class_data['max_enroll']:
+    #     if not FREEZE:
+    #         if student_data['waitlist_count'] < MAX_WAITLIST and class_data['current_enroll'] < class_data['max_enroll'] + 15:
+    #             cursor.execute("""UPDATE waitlist 
+    #                             SET waitlist_count = waitlist_count + 1
+    #                             WHERE student_id = ?""",(student_id,))
+    #             db.commit()
+    #             return {"message": "Student added to the waitlist"}
+    #         else:
+    #             return {"message": "Unable to add student to waitlist due to already having max number of waitlists"}
+    #     else:
+    #         return {"message": "Unable to add student to waitlist due to administrative freeze"}
+    
+    # db.commit()
 
     return {"message": "Student succesfully enrolled in class"}
 
