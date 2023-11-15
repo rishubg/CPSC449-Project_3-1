@@ -237,9 +237,10 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     if not student_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
     
+    ### Still need to fix bug
     # Check if student is already enrolled in the class
-    if student_data and class_data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
+    # if student_data and class_data:
+    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
 
     ### still working on these last few cursoer executes ###
     # Increment enrollment number in the database
@@ -264,15 +265,14 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     # cursor.execute("INSERT INTO enrollment (placement, student_id, class_id) VALUES (?, ?, ?)", (new_enrollment, student_id, class_id))
     
     # Remove student from dropped table if valid
-    if class_data:
-        if student_id in class_table.get('dropped', []):
-            class_table.update_item(
-                Key={
-                    'id': class_id
-                },
-                UpdateExpression='DELETE dropped :student',
-                ExpressionAttributeValues={':student': {student_data}}
-            )
+    if student_data and class_data:
+        class_table.update_item(
+            Key={
+                'id': class_id
+            },
+            UpdateExpression='DELETE dropped :student',
+            ExpressionAttributeValues={':student': {student_data}}
+        )
     # cursor.execute("""SELECT * FROM dropped 
     #                 WHERE class_id = ? AND student_id = ?
     #                 """, (class_id, student_id))
