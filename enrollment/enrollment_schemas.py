@@ -76,7 +76,7 @@ class Class_Registrar(BaseModel):
     department_id: int
     instructor_id: int
 
-class Enrollment(BaseModel):
+class Enroll(BaseModel):
     placement: int
     class_id: int
     student_id: int
@@ -93,3 +93,15 @@ class User_info(BaseModel):
 class Create_User(BaseModel):
     name: str
     roles: List
+
+class Class_Enroll(BaseModel):
+    id: int
+    name: str
+    course_code: str
+    section_number: int
+    current_enroll: int
+    max_enroll: int
+    department: str
+    instructor: Instructor
+    current_waitlist: int
+    max_waitlist: int
