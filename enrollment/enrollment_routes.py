@@ -218,7 +218,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
-   # Fetch student data  and class data from db
+   # Fetch student data and class data from db
     user_table = get_table_resource(db, "enrollment_user")
     class_table = get_table_resource(db, "enrollment_class")
     response_1 = user_table.get_item(
@@ -257,7 +257,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
         Key={
             'id': class_id
         },
-        UpdateExpression='Set current_enroll = :new_enrollment',
+        UpdateExpression='SET current_enroll = :new_enrollment',
         ExpressionAttributeValues={':new_enrollment': new_enrollment}
     )
 
@@ -301,8 +301,11 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
 
 # Have a student drop a class they're enrolled in
 @router.put("/students/{student_id}/classes/{class_id}/drop/", tags=['Student'])
-def drop_student_from_class(student_id: int, class_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def drop_student_from_class(student_id: int, class_id: int, request: Request):
     
+    db = get_dynamodb() 
+    wrapper = get_wrapper(db)
+
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
     
@@ -319,47 +322,55 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request, db
         if r_flag:
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
-    
-    cursor = db.cursor()
 
-    # check if exist
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        WHERE uid = ? AND role = ?
-        """, (student_id, 'student')
+   # Fetch student data  and class data from db
+    user_table = get_table_resource(db, "enrollment_user")
+    class_table = get_table_resource(db, "enrollment_class")
+    response_1 = user_table.get_item(
+        Key={
+            'id': student_id
+        }
     )
-    student_data = cursor.fetchone()
+    response_2 = class_table.get_item(
+        Key={
+            'id': class_id
+        }
+    )
+    student_data = response_1.get('Item')
+    class_data = response_2.get('Item')
 
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
-
+    # Check if the class and student exists in the database
     if not student_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
 
+    ### working on this ####
+
     #check enrollment
-    cursor.execute("SELECT * FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    enrollment_data = cursor.fetchone()
+    enrollment_data = wrapper.run_partiql(
+        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?'
+    )
+        
+    # cursor.execute("SELECT * FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
+    # enrollment_data = cursor.fetchone()
 
-    cursor.execute("""SELECT * FROM enrollment
-                    JOIN class ON enrollment.class_id = class.id
-                    WHERE enrollment.student_id = ? AND class_id = ?
-                    AND enrollment.placement > class.max_enroll""", (student_id, class_id))
-    waitlist_data = cursor.fetchone()
+
+    # cursor.execute("""SELECT * FROM enrollment
+    #                 JOIN class ON enrollment.class_id = class.id
+    #                 WHERE enrollment.student_id = ? AND class_id = ?
+    #                 AND enrollment.placement > class.max_enroll""", (student_id, class_id))
+    # waitlist_data = cursor.fetchone()
     
-    if not enrollment_data or waitlist_data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
+    # if not enrollment_data or waitlist_data:
+    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
 
-    # remove student from class
-    cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    reorder_placement(cursor, class_data['current_enroll'], enrollment_data['placement'], class_id)
+    # # remove student from class
+    # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
+    # reorder_placement(cursor, class_data['current_enroll'], enrollment_data['placement'], class_id)
 
-    # Update dropped table
-    cursor.execute(""" INSERT INTO dropped (class_id, student_id)
-                    VALUES (?, ?)""",(class_id, student_id))
-    db.commit()
+    # # Update dropped table
+    # cursor.execute(""" INSERT INTO dropped (class_id, student_id)
+    #                 VALUES (?, ?)""",(class_id, student_id))
+    # db.commit()
     
     return {"message": "Student successfully dropped class"}
 
