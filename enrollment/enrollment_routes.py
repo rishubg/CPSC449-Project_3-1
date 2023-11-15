@@ -196,7 +196,8 @@ def get_available_classes(student_id: int, request: Request):
 @router.post("/students/{student_id}/classes/{class_id}/enroll", tags=['Student'])
 def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     
-    db = get_dynamodb()
+    db = get_dynamodb() 
+    wrapper = get_wrapper(db)
 
     # User Authentication
     if request.headers.get("X-User"):
@@ -238,86 +239,72 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
     
     ### Still need to fix bug
+        # output = wrapper.run_partiql_statement(
+        #     f'SELECT * FROM "{CLASS_TABLE}" WHERE current_enroll <= max_enroll'
+        # )
     # Check if student is already enrolled in the class
-    if student_data and class_data:
+    # enrolled_student = class_table.query(
+    #     KeyConditionExpression='class_id = :class_id AND student_id = :student_id',
+    #     ExpressionAttributeValues={':class_id': class_id, ':student_id': student_id}
+    # )
+    enrolled_student = wrapper.run_partiql_statement(
+        f'SELECT * FROM "{CLASS_TABLE}" WHERE class_id = {class_data["id"]} AND student_id = {student_data["id"]}'
+    )
+
+    # retrieve the result items
+    existing_enrollment = enrolled_student.get('Items')
+
+    if existing_enrollment:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
+
 
     ### still working on these last few cursoer executes ###
     # Increment enrollment number in the database
-    new_enrollment = class_data['current_enroll'] + 1
+    new_enrollment = class_data.get('current_enroll', 0) + 1
     class_table.update_item(
         Key={
             'id': class_id
         },
-        UpdateExpression="SET current_enroll = :enroll",
-        ExpressionAttributeValues={':enroll': new_enrollment}
+        UpdateExpression='Set current_enroll = :new_enrollment',
+        ExpressionAttributeValues={':new_enrollment': new_enrollment}
     )
-    # cursor.execute("UPDATE class SET current_enroll = ? WHERE id = ?", (new_enrollment, class_id))
 
     # Add student to enrolled class in the database
-    class_table.put_item(
-        Item={
-            'current_enroll': new_enrollment,
-            'enrolled': [student_data],
+    class_table.update_item(
+        Key={
             'id': class_id
-        }
+        },
+        UpdateExpression='SET enrolled = list_append(if_not_exists(enrolled, :empty_list), :student_id)',
+        ExpressionAttributeValues={':empty_list': [], ':student_id': [student_id]}
     )
-    # cursor.execute("INSERT INTO enrollment (placement, student_id, class_id) VALUES (?, ?, ?)", (new_enrollment, student_id, class_id))
     
     # Remove student from dropped table if valid
-    if student_data and class_data:
+    if student_id in class_data.get('dropped', []):
         class_table.update_item(
-            Key={
-                'id': class_id
-            },
-            UpdateExpression='DELETE dropped :student',
-            ExpressionAttributeValues={':student': {student_data}}
+            Key={'id': class_id},
+            UpdateExpression='DELETE dropped :student_id',
+            ExpressionAttributeValues={':student_id': {student_id}}
         )
-    # cursor.execute("""SELECT * FROM dropped 
-    #                 WHERE class_id = ? AND student_id = ?
-    #                 """, (class_id, student_id))
-    # dropped_data = cursor.fetchone()
-    # if dropped_data:
-    #     cursor.execute("""DELETE FROM dropped 
-    #                 WHERE class_id = ? AND student_id = ?
-    #                 """, (class_id, student_id))
 
     # Check if the class is full, add student to waitlist if no
     # freeze is in place
     ## code goes here
-    waitlist_count = get_waitlist_count(student_id)
-    if class_data.get('current_enroll') >= class_data.get('max_enroll'):
+    if new_enrollment >= class_data.get('max_enroll', 0):
         if not FREEZE:
-            if waitlist_count >= MAX_WAITLIST:
-                class_table.update_item(
-                    Key={
-                        'id': class_id
-                    },
-                    UpdateExpression='SET waitlist = list_append(waitlist, :student)',
-                    ExpressionAttributeValues={':student': [{'student_id': student_id}]}
+            if len(student_data.get('waitlist_count', [])) < MAX_WAITLIST and new_enrollment < class_data.get('max_enroll', 0) + 15:
+                user_table.update_item(
+                    Key={'id': student_id},
+                    UpdateExpression='SET waitlist_count = if_not_exists(waitlist_count, :zero) + :waitlist_count',
+                    ExpressionAttributeValues={':zero': 0, ':waitlist_count': 1}
                 )
                 return {"message": "Student added to the waitlist"}
             else:
-                return {"message": "Unable to add student to waitlist due to already having max number of waitlists"}
+                return {"message": "Unable to add student to waitlist due to already having the maximum number of waitlists"}
         else:
             return {"message": "Unable to add student to waitlist due to administrative freeze"}
-    
-    # if class_data['current_enroll'] >= class_data['max_enroll']:
-    #     if not FREEZE:
-    #         if student_data['waitlist_count'] < MAX_WAITLIST and class_data['current_enroll'] < class_data['max_enroll'] + 15:
-    #             cursor.execute("""UPDATE waitlist 
-    #                             SET waitlist_count = waitlist_count + 1
-    #                             WHERE student_id = ?""",(student_id,))
-    #             db.commit()
-    #             return {"message": "Student added to the waitlist"}
-    #         else:
-    #             return {"message": "Unable to add student to waitlist due to already having max number of waitlists"}
-    #     else:
-    #         return {"message": "Unable to add student to waitlist due to administrative freeze"}
-    
-    # db.commit()
 
-    return {"message": "Student succesfully enrolled in class"}
+    return {"message": "Student successfully enrolled in class"}
+    
 
 
 # Have a student drop a class they're enrolled in
