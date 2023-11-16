@@ -569,10 +569,12 @@ def view_current_waitlist(instructor_id: int, class_id: int, request: Request, d
 
 
 #==========================================Instructor==================================================
-
 #view current enrollment for class
 @router.get("/instructors/{instructor_id}/classes/{class_id}/enrollment", tags=['Instructor'])
-def get_instructor_enrollment(instructor_id: int, class_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def get_instructor_enrollment(instructor_id: int, class_id: int, request: Request):
+
+    db = get_dynamodb()
+    wrapper = get_wrapper(db)
     
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -591,65 +593,61 @@ def get_instructor_enrollment(instructor_id: int, class_id: int, request: Reques
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    cursor = db.cursor()
-
-    #check if exist
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        WHERE uid = ? AND role = ?
-        """, (instructor_id, 'instructor')
+    user = get_table_resource(db, USER_TABLE)
+    user_response = user.get_item(
+        Key={"id": instructor_id}
     )
-    instructor_data = cursor.fetchone()
+    instructor_data = user_response.get("Item")
 
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+    classes = get_table_resource(db, CLASS_TABLE)
+    
+    # Getting the Instructor class
+    classes = get_table_resource(db,CLASS_TABLE)
+    class_response = classes.get_item(
+        Key={'id': class_id}
+    )
+    class_data = class_response.get("Item")
 
     if not instructor_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or class not found")
 
-    cursor.execute(
-        """
-        SELECT * FROM instructor_class
-        WHERE instructor_id = ? AND class_id = ?
-        """, (instructor_id, class_id)
+    # checking if the instructor and class exists
+    if not instructor_data or not class_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or class not found")
+
+    # getting the instructor id and class id
+    instructor_data = wrapper.run_partiql(
+        f'SELECT * FROM {CLASS_TABLE} WHERE instructor_id = ? AND id = ?',[instructor_id, class_id]
     )
-    instructor_class_data = cursor.fetchone()
+    
+    # checking if the instructor is assigned to class
+    if 'Items' in instructor_data and instructor_data['Items']:
+        retrieved_instructor_id = instructor_data['Items'][0].get('instructor_id')
+        if retrieved_instructor_id == instructor_id:
+            print("Instructor assigned to the class.")
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instructor not assigned to this class")
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class not found or instructor not assigned to this class")
+    
+    # Getting list of enrolled students
+    enrolled_students = wrapper.run_partiql(
+        f'SELECT enrolled FROM {CLASS_TABLE} WHERE id = ?', [class_id]
+    )
 
-    if not instructor_class_data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instructor not assigned to this class")
+    if "Items" in enrolled_students and enrolled_students["Items"]:
+        enrolled_data = enrolled_students['Items'][0].get('enrolled', [])
 
-    #Fetch relavent data for instructor
-    cursor.execute("""SELECT users.uid AS student_id,
-                    users.name AS student_name, enrollment.placement
-                    FROM enrollment 
-                    JOIN class ON enrollment.class_id = class.id
-                    JOIN users ON enrollment.student_id = users.uid
-                    JOIN instructor_class ON class.id = instructor_class.class_id
-                    WHERE instructor_class.instructor_id = ?
-                    AND instructor_class.class_id = ? 
-                    AND enrollment.placement <= class.max_enroll
-                    AND class.current_enroll > 0""", (instructor_id, class_id))
-    enrolled_data = cursor.fetchall()
+        enrolled_list = []
+        for student_id in enrolled_data:
+            response = user.get_item(Key={'id': student_id})
+            student_data = response.get("Item")
 
-    #Check if exist
-    if not enrolled_data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class has no students enrolled")
-
-    # Create a list to store the Waitlist_Instructor instances
-    enrolled_list = []
-
-    # Iterate through the query results and create Waitlist_Instructor instances
-    for row in enrolled_data:
-        enrolled_info = Enrolled(
-            student=Student(id=row['student_id'], name=row['student_name']),
-            position=row['placement']
-        )
-        enrolled_list.append(enrolled_info)
-
-    return {"Enrolled": enrolled_list}
+            if student_data and 'name' in student_data:
+                enrolled_list.append(student_data['name'])
+        return {"Enrolled": enrolled_list}
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class has no dropped students")
 
 
 #view students who have dropped the class
