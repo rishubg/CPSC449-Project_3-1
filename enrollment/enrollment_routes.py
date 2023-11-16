@@ -218,20 +218,22 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
-   # Fetch student data and class data from db
-    user_table = get_table_resource(db, "enrollment_user")
-    class_table = get_table_resource(db, "enrollment_class")
+   # Fetch student data from db
+    user_table = get_table_resource(db,USER_TABLE)
     response_1 = user_table.get_item(
         Key={
             'id': student_id
         }
     )
+    student_data = response_1.get('Item')
+
+    # Fetch class data from db
+    class_table = get_table_resource(db, CLASS_TABLE)
     response_2 = class_table.get_item(
         Key={
             'id': class_id
         }
     )
-    student_data = response_1.get('Item')
     class_data = response_2.get('Item')
 
     # Check if the class and student exists in the database
@@ -323,20 +325,22 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
-   # Fetch student data  and class data from db
+   # Fetch student data from db
     user_table = get_table_resource(db, "enrollment_user")
-    class_table = get_table_resource(db, "enrollment_class")
     response_1 = user_table.get_item(
         Key={
             'id': student_id
         }
     )
+    student_data = response_1.get('Item')
+    
+    # Fetch class data from db
+    class_table = get_table_resource(db, "enrollment_class")
     response_2 = class_table.get_item(
         Key={
             'id': class_id
         }
     )
-    student_data = response_1.get('Item')
     class_data = response_2.get('Item')
 
     # Check if the class and student exists in the database
@@ -344,15 +348,22 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
 
     ### working on this ####
-
     #check enrollment
-    enrollment_data = wrapper.run_partiql(
-        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?'
-    )
-        
+    # student_enrollment = wrapper.run_partiql(
+    #     f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
+    #     [class_id]
+    # )
+    # # check the information in the table
+    # for item in student_enrollment["Items"]:
+    #     for id in item['enrolled']:
+    #         if id != student_id:
+    #             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
+
+    if student_id not in class_data.get('enrolled', []):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
+    
     # cursor.execute("SELECT * FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
     # enrollment_data = cursor.fetchone()
-
 
     # cursor.execute("""SELECT * FROM enrollment
     #                 JOIN class ON enrollment.class_id = class.id
@@ -363,11 +374,35 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
     # if not enrollment_data or waitlist_data:
     #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
 
-    # # remove student from class
+    # remove student from class
+    # if class_data and 'enrolled' in class_data:
+    #     enrolled_students = class_data['enrolled']
+    #     if student_id in enrolled_students:
+    #         enrolled_students.remove(student_id)
+    #         # Update the class item in DynamoDB
+    #         class_table.update_item(
+    #             Key={
+    #                 'id': class_id
+    #             },
+    #             UpdateExpression="SET enrolled = :enrolled",
+    #             ExpressionAttributeValues={
+    #                 ':enrolled': enrolled_students
+    #             }
+    #         )
     # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
     # reorder_placement(cursor, class_data['current_enroll'], enrollment_data['placement'], class_id)
 
-    # # Update dropped table
+    # Update dropped table
+    # class_table.update_item(
+    #     Key={
+    #         'id': class_id
+    #     },
+    #     UpdateExpression="ADD dropped :student_id",
+    #     ExpressionAttributeValue={
+    #         ':student_id': [student_id]
+    #     }
+
+    # )
     # cursor.execute(""" INSERT INTO dropped (class_id, student_id)
     #                 VALUES (?, ?)""",(class_id, student_id))
     # db.commit()
