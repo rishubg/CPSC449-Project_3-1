@@ -326,16 +326,16 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
    # Fetch student data from db
-    user_table = get_table_resource(db, "enrollment_user")
+    user_table = get_table_resource(db, USER_TABLE)
     response_1 = user_table.get_item(
         Key={
             'id': student_id
         }
     )
     student_data = response_1.get('Item')
-    
+
     # Fetch class data from db
-    class_table = get_table_resource(db, "enrollment_class")
+    class_table = get_table_resource(db, CLASS_TABLE)
     response_2 = class_table.get_item(
         Key={
             'id': class_id
@@ -349,18 +349,22 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
 
     ### working on this ####
     #check enrollment
-    # student_enrollment = wrapper.run_partiql(
-    #     f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
-    #     [class_id]
-    # )
+    student_enrollment = wrapper.run_partiql(
+        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
+        [class_id]
+    )
+    for item in student_enrollment['Items']:
+        if student_id not in item['enrolled']:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
     # # check the information in the table
-    # for item in student_enrollment["Items"]:
-    #     for id in item['enrolled']:
-    #         if id != student_id:
-    #             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
-
-    if student_id not in class_data.get('enrolled', []):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
+    # if 'Items' in class_data and class_data['Items']:
+    #     student_enrollment = class_data['Items'].get('enrolled')
+    #     if student_id not in student_enrollment:
+    #         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
+        
+    
+    # if not class_data or student_id not in class_data.get('enrolled'):
+    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
     
     # cursor.execute("SELECT * FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
     # enrollment_data = cursor.fetchone()
