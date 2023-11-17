@@ -248,8 +248,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     )
     # check the information in the table
     for item in student_enrollment["Items"]:
-        enrolled_students = item.get('enrolled', [])
-        if student_id in enrolled_students:
+        if student_id in item['enrolled']:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
 
     # Increment enrollment number in the database
@@ -273,7 +272,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     )
     
     # Remove student from dropped table if valid
-    if student_id in class_data.get('dropped', []):
+    if student_id in class_data.get('dropped'):
         class_table.update_item(
             Key={'id': class_id},
             UpdateExpression='DELETE dropped :student_id',
@@ -348,51 +347,21 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
 
     ### working on this ####
-    #check enrollment
+    # get enrollment data
     student_enrollment = wrapper.run_partiql(
         f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
         [class_id]
     )
+    # check for enrollment 
     for item in student_enrollment['Items']:
         if student_id not in item['enrolled']:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
-    # # check the information in the table
-    # if 'Items' in class_data and class_data['Items']:
-    #     student_enrollment = class_data['Items'].get('enrolled')
-    #     if student_id not in student_enrollment:
-    #         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
-        
-    
-    # if not class_data or student_id not in class_data.get('enrolled'):
-    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
-    
-    # cursor.execute("SELECT * FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    # enrollment_data = cursor.fetchone()
-
-    # cursor.execute("""SELECT * FROM enrollment
-    #                 JOIN class ON enrollment.class_id = class.id
-    #                 WHERE enrollment.student_id = ? AND class_id = ?
-    #                 AND enrollment.placement > class.max_enroll""", (student_id, class_id))
-    # waitlist_data = cursor.fetchone()
-    
-    # if not enrollment_data or waitlist_data:
-    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
 
     # remove student from class
-    # if class_data and 'enrolled' in class_data:
-    #     enrolled_students = class_data['enrolled']
-    #     if student_id in enrolled_students:
-    #         enrolled_students.remove(student_id)
-    #         # Update the class item in DynamoDB
-    #         class_table.update_item(
-    #             Key={
-    #                 'id': class_id
-    #             },
-    #             UpdateExpression="SET enrolled = :enrolled",
-    #             ExpressionAttributeValues={
-    #                 ':enrolled': enrolled_students
-    #             }
-    #         )
+    if student_id in class_data.get('enrolled'):
+        class_data['enrolled'].remove(student_id)
+        class_data['dropped'].append(student_id)
+
     # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
     # reorder_placement(cursor, class_data['current_enroll'], enrollment_data['placement'], class_id)
 
