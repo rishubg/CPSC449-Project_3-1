@@ -267,17 +267,14 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
         Key={
             'id': class_id
         },
-        UpdateExpression='SET enrolled = list_append(if_not_exists(enrolled, :empty_list), :student_id)',
-        ExpressionAttributeValues={':empty_list': [], ':student_id': [student_id]}
+        UpdateExpression='SET enrolled = list_append(enrolled, :student_id)',
+        ExpressionAttributeValues={':student_id': [student_id]}
     )
     
     # Remove student from dropped table if valid
-    if student_id in class_data.get('dropped'):
-        class_table.update_item(
-            Key={'id': class_id},
-            UpdateExpression='DELETE dropped :student_id',
-            ExpressionAttributeValues={':student_id': {student_id}}
-        )
+    if 'dropped' in class_data:
+        if student_id in class_data['dropped']:
+            class_data['dropped'].remove(student_id)
 
     # Check if the class is full, add student to waitlist if no
     ## code goes here
@@ -358,27 +355,18 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
 
     # remove student from class
-    if student_id in class_data.get('enrolled'):
-        class_data['enrolled'].remove(student_id)
-        class_data['dropped'].append(student_id)
+    if 'enrolled' in class_data:
+        if student_id in class_data['enrolled']:
+            class_data['enrolled'].remove(student_id)
 
-    # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    # reorder_placement(cursor, class_data['current_enroll'], enrollment_data['placement'], class_id)
-
-    # Update dropped table
-    # class_table.update_item(
-    #     Key={
-    #         'id': class_id
-    #     },
-    #     UpdateExpression="ADD dropped :student_id",
-    #     ExpressionAttributeValue={
-    #         ':student_id': [student_id]
-    #     }
-
-    # )
-    # cursor.execute(""" INSERT INTO dropped (class_id, student_id)
-    #                 VALUES (?, ?)""",(class_id, student_id))
-    # db.commit()
+    # update dropped table
+    class_table.update_item(
+        Key={
+            'id': class_id
+        },
+        UpdateExpression='SET dropped = list_append(dropped, :student_id)',
+        ExpressionAttributeValues={':student_id': [student_id]}
+    )
     
     return {"message": "Student successfully dropped class"}
 
