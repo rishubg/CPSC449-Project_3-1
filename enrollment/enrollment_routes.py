@@ -376,7 +376,7 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
 
 # Get all waiting lists for a student
 @router.get("/waitlist/students/{student_id}", tags=['Waitlist'])
-def view_waiting_list(student_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def view_waiting_list(student_id: int, request: Request):
     
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -395,32 +395,35 @@ def view_waiting_list(student_id: int, request: Request, db: sqlite3.Connection 
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    cursor = db.cursor()
+    # Retrieve waitlist entries for the specified student from Redis
+    student_waitlist_key = student_waitlists_key.format(student_id)
+    waitlist_data = r.zrange(student_waitlist_key, 0, -1, withscores=True)
 
-    # Retrieve waitlist entries for the specified student from the database
-    cursor.execute("SELECT waitlist_count FROM waitlist WHERE student_id = ? AND waitlist_count > 0", (student_id,))
-    waitlist_data = cursor.fetchall()
+    # # Retrieve waitlist entries for the specified student from the database
+    # cursor.execute("SELECT waitlist_count FROM waitlist WHERE student_id = ? AND waitlist_count > 0", (student_id,))
+    # waitlist_data = cursor.fetchall()
 
     # Check if exist
     if not waitlist_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not on a waitlist")  
 
     # fetch all relevant waitlist information for student
-    cursor.execute("""
-        SELECT class.id AS class_id, class.name AS class_name, class.course_code,
-                class.section_number, department.id AS department_id,
-                department.name AS department_name,
-                users.uid AS instructor_id, users.name AS instructor_name,
-                enrollment.placement - class.max_enroll AS waitlist_position
-        FROM enrollment
-        JOIN class ON enrollment.class_id = class.id
-        JOIN users ON enrollment.student_id = users.uid
-        JOIN department ON class.department_id = department.id
-        JOIN instructor_class ON class.id = instructor_class.class_id
-        WHERE users.uid = ? AND class.current_enroll > class.max_enroll
-        """, (student_id,)
-    )
-    waitlist_data = cursor.fetchall()
+    
+    # cursor.execute("""
+    #     SELECT class.id AS class_id, class.name AS class_name, class.course_code,
+    #             class.section_number, department.id AS department_id,
+    #             department.name AS department_name,
+    #             users.uid AS instructor_id, users.name AS instructor_name,
+    #             enrollment.placement - class.max_enroll AS waitlist_position
+    #     FROM enrollment
+    #     JOIN class ON enrollment.class_id = class.id
+    #     JOIN users ON enrollment.student_id = users.uid
+    #     JOIN department ON class.department_id = department.id
+    #     JOIN instructor_class ON class.id = instructor_class.class_id
+    #     WHERE users.uid = ? AND class.current_enroll > class.max_enroll
+    #     """, (student_id,)
+    # )
+    # waitlist_data = cursor.fetchall()
 
     # Create a list to store the Waitlist_Student instances
     waitlist_list = []
