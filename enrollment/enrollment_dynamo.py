@@ -114,7 +114,7 @@ class Enrollment:
             raise
 
 
-    def get_item(self, id):
+    def get_enrollment_item(self, id):
         """
         Gets item data from the table for a specific id.
 

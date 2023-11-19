@@ -5,10 +5,11 @@ import logging
 from botocore.exceptions import ClientError
 from enrollment_schemas import Class, Enroll, Dropped, User_info
 from enrollment_dynamo import Enrollment, PartiQL
+from enrollment_redis import Waitlist
 from pprint import pprint
 
 # turn debug print statements on or off
-DEBUG = False
+DEBUG = True
 
 # Configure the logger
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 # Connect to Redis
 r = redis.Redis(db=1)
-#r = redis.Redis(host='localhost', port=6379, db=1)  # Update connection details as needed
 
 # Connect to DynamoDB
 dynamodb = boto3.resource('dynamodb', endpoint_url='http://localhost:5500')
@@ -273,46 +273,6 @@ for index, class_data in enumerate(sample_classes, start = 1):
     place = 1
 
 
-#------------------------------------REDIS INITIALIZATION-----------------------------------------------------
-
-# Key patterns
-class_waitlist_key = "class:{}:waitlist"
-student_waitlists_key = "student:{}:waitlists"
-
-
-def add_waitlists(class_id, student_id, placement):
-    # Add student to class waitlist
-    r.zadd(class_waitlist_key.format(class_id), {student_id: placement})
-
-    # Add class to student's waitlist
-    r.hset(student_waitlists_key.format(student_id), class_id, placement)
-
-
-# The following two functions are just used to print all the info from redis
-# This is used only for debug purposes
-class_waitlist_key_pattern = "class:*:waitlist"
-student_waitlists_key_pattern = "student:*:waitlists"
-
-
-def get_all_class_waitlists():
-    keys = r.keys(class_waitlist_key_pattern)
-    class_waitlists = {}
-    for key in keys:
-        class_id = key.decode().split(":")[1]
-        waitlist = r.zrange(key, 0, -1, withscores=True)
-        class_waitlists[class_id] = waitlist
-    return class_waitlists
-
-def get_all_student_waitlists():
-    keys = r.keys(student_waitlists_key_pattern)
-    student_waitlists = {}
-    for key in keys:
-        student_id = key.decode().split(":")[1]
-        waitlists = r.hgetall(key)
-        student_waitlists[student_id] = waitlists
-    return student_waitlists
-
-
 # ---------------------------- Enrollment Initialization ----------------------------------------
 
 
@@ -373,14 +333,16 @@ def create_database(enrollment, wrapper):
     # initialize the redis db with waitlist information
     for enrollment_data in sample_enrollments:
         if enrollment_data.placement > 30:
-            position = enrollment_data.placement - 30
-            add_waitlists(enrollment_data.class_id, enrollment_data.student_id, position)
+            Waitlist.add_waitlists(enrollment_data.class_id, enrollment_data.student_id)
     
     # add student_id 1 to three different waitlists
     # Used for testing purposes so at least 1 student has max waitlists
-    add_waitlists(4, 1, 3)
-    add_waitlists(8, 1, 1)
-    add_waitlists(13, 1, 6)
+    Waitlist.add_waitlists(4, 1)
+    Waitlist.add_waitlists(8, 1)
+    Waitlist.add_waitlists(13, 1)
+
+    Waitlist.remove_student_from_waitlists(281, 12)
+    Waitlist.remove_student_from_waitlists(1, 8)
 
     if DEBUG:
         debug_class = []
@@ -401,8 +363,8 @@ def create_database(enrollment, wrapper):
             debug_user.append(output["Items"])
         print("\nUser Table: \n", debug_user)
 
-        all_class_waitlists = get_all_class_waitlists()
-        all_student_waitlists = get_all_student_waitlists()
+        all_class_waitlists = Waitlist.get_all_class_waitlists()
+        all_student_waitlists = Waitlist.get_all_student_waitlists()
 
         print("All Class Waitlists:", all_class_waitlists)
         print("All Student Waitlists:", all_student_waitlists)

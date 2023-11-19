@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, APIRouter, status, Request
 from enrollment.enrollment_schemas import *
 from boto3.dynamodb.conditions import Key
 from enrollment.enrollment_dynamo import PartiQL
+from enrollment.enrollment_redis import Waitlist
 
 settings = Settings()
 router = APIRouter()
@@ -47,16 +48,6 @@ def get_wrapper(dynamodb):
 
 # Connect to Redis
 r = redis.Redis(db=1)
-
-# Redis functions
-# Key patterns
-class_waitlist_key = "class:{}:waitlist"
-student_waitlists_key = "student:{}:waitlists"
-
-# Returns the total count of waitlists the student is currently on
-def get_waitlist_count(student_id):
-    waitlists = r.hlen(student_waitlists_key.format(student_id))
-    return waitlists
 
 # Called when a student is dropped from a class / waiting list
 # and the enrollment place must be reordered
@@ -139,7 +130,7 @@ def get_available_classes(student_id: int, request: Request):
     if not student_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
     
-    waitlist_count = get_waitlist_count(student_id)
+    waitlist_count = Waitlist.get_waitlist_count(student_id)
 
     # If max waitlist, don't show full classes with open waitlists
     if waitlist_count >= MAX_WAITLIST:
