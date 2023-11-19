@@ -353,8 +353,8 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
     )
 
     # remove student from class
-    for item in enroll.get('Items'):
-        student_enrolled = item.get('enrolled')
+    for item in enroll.get('Items', []):
+        student_enrolled = item.get('enrolled', [])
         if student_id in student_enrolled:
             student_enrolled.remove(student_id)
 
@@ -366,6 +366,7 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
                 UpdateExpression='SET dropped = list_append(dropped, :student_enrolled)',
                 ExpressionAttributeValues={':student_enrolled': student_enrolled}
             )
+            print(f"Student {student_id} removed from enrolled list.")
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student already dropped")
     
