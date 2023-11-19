@@ -396,49 +396,41 @@ def view_waiting_list(student_id: int, request: Request):
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
     # Retrieve waitlist entries for the specified student from Redis
-    student_waitlist_key = student_waitlists_key.format(student_id)
+    student_waitlist_key = f"student:{student_id}:waitlists"
     waitlist_data = r.zrange(student_waitlist_key, 0, -1, withscores=True)
-
-    # # Retrieve waitlist entries for the specified student from the database
-    # cursor.execute("SELECT waitlist_count FROM waitlist WHERE student_id = ? AND waitlist_count > 0", (student_id,))
-    # waitlist_data = cursor.fetchall()
 
     # Check if exist
     if not waitlist_data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not on a waitlist")  
-
-    # fetch all relevant waitlist information for student
-    
-    # cursor.execute("""
-    #     SELECT class.id AS class_id, class.name AS class_name, class.course_code,
-    #             class.section_number, department.id AS department_id,
-    #             department.name AS department_name,
-    #             users.uid AS instructor_id, users.name AS instructor_name,
-    #             enrollment.placement - class.max_enroll AS waitlist_position
-    #     FROM enrollment
-    #     JOIN class ON enrollment.class_id = class.id
-    #     JOIN users ON enrollment.student_id = users.uid
-    #     JOIN department ON class.department_id = department.id
-    #     JOIN instructor_class ON class.id = instructor_class.class_id
-    #     WHERE users.uid = ? AND class.current_enroll > class.max_enroll
-    #     """, (student_id,)
-    # )
-    # waitlist_data = cursor.fetchall()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not on a waitlist")
 
     # Create a list to store the Waitlist_Student instances
     waitlist_list = []
 
     # Iterate through the query results and create Waitlist_Student instances
-    for row in waitlist_data:
-        waitlist_info = Waitlist_Student(
-            id=row['class_id'],
-            name=row['class_name'],
-            course_code=row['course_code'],
-            section_number=row['section_number'],
-            department=Department(id=row['department_id'], name=row['department_name']),
-            instructor=Instructor(id=row['instructor_id'], name=row['instructor_name']),
-            waitlist_position=row['waitlist_position']
+    for class_id, position in waitlist_data:
+        # fertch class details
+        student_waitlist_key = f"class:{class_id}:wailist"
+        class_details = r.hgetall(class_waitlist_key)
+        waitlist_info = Waitlist_Info(
+            # id="",
+            # name="",
+            # course_code="",
+            # section_number="",
+            # max_enroll="",
+            # department="",
+            # instructor=Instructor(id="item['instructor_id']", name="result['Items'][0]['name']"),
+            # waitlist_total=position
         )
+    # for row in waitlist_data:
+    #     waitlist_info = Waitlist_Student(
+    #         id=row['class_id'],
+    #         name=row['class_name'],
+    #         course_code=row['course_code'],
+    #         section_number=row['section_number'],
+    #         department=Department(id=row['department_id'], name=row['department_name']),
+    #         instructor=Instructor(id=row['instructor_id'], name=row['instructor_name']),
+    #         waitlist_position=row['waitlist_position']
+    #     )
         waitlist_list.append(waitlist_info)
 
     return {"Waitlists": waitlist_list}
