@@ -239,7 +239,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     )
     # check the information in the table
     for item in student_enrollment["Items"]:
-        if student_id in item['enrolled']:
+        if student_id in item.get('enrolled', []):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this class or currently on waitlist")
 
     # Increment enrollment number in the database
@@ -261,11 +261,26 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
         UpdateExpression='SET enrolled = list_append(enrolled, :student_id)',
         ExpressionAttributeValues={':student_id': [student_id]}
     )
+
+    # get class information
+    student_enrolled = wrapper.run_partiql(
+        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',[class_id]
+    )
     
     # Remove student from dropped table if valid
-    # if 'dropped' in class_data:
-    #     if student_id in class_data['dropped']:
-    #         class_data['dropped'].remove(student_id)
+    for item in student_enrolled['Items']:
+        get_dropped = item.get('dropped', [])
+        if student_id in get_dropped:
+            # remove student from dropped
+            get_dropped.remove(student_id)
+            # udpate enrolled table with the removed student
+            class_table.update_item(
+                Key={
+                    'id': class_id
+                },
+                UpdateExpression='SET dropped = :dropped',
+                ExpressionAttributeValues={':dropped': get_dropped}
+            )
 
     # Check if the class is full, add student to waitlist if no
     ## code goes here
@@ -402,6 +417,9 @@ def view_waiting_list(student_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
+    db = get_dynamodb() 
+    wrapper = get_wrapper(db)
+
     # Retrieve waitlist entries for the specified student from Redis
     student_waitlist_key = f"student:{student_id}:waitlists"
     waitlist_data = r.zrange(student_waitlist_key, 0, -1, withscores=True)
@@ -409,36 +427,41 @@ def view_waiting_list(student_id: int, request: Request):
     # Check if exist
     if not waitlist_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not on a waitlist")
+    
+    waitlist_count = Waitlist.get_waitlist_count(student_id)
 
-    # Create a list to store the Waitlist_Student instances
+    # Create a list to store the Class instances
     waitlist_list = []
 
-    # Iterate through the query results and create Waitlist_Student instances
-    for class_id, position in waitlist_data:
-        # fertch class details
-        student_waitlist_key = f"class:{class_id}:wailist"
-        # class_details = r.hgetall(class_waitlist_key)
-        waitlist_info = Waitlist_Info(
-            # id="",
-            # name="",
-            # course_code="",
-            # section_number="",
-            # max_enroll="",
-            # department="",
-            # instructor=Instructor(id="item['instructor_id']", name="result['Items'][0]['name']"),
-            # waitlist_total=position
+    # Iterate through the query results and create Class instances
+    for item in output['Items']:
+        # get instructor information
+        result = wrapper.run_partiql(
+            f'SELECT * FROM "{USER_TABLE}" WHERE id=?',
+            [item['instructor_id']]
         )
-    # for row in waitlist_data:
-    #     waitlist_info = Waitlist_Student(
-    #         id=row['class_id'],
-    #         name=row['class_name'],
-    #         course_code=row['course_code'],
-    #         section_number=row['section_number'],
-    #         department=Department(id=row['department_id'], name=row['department_name']),
-    #         instructor=Instructor(id=row['instructor_id'], name=row['instructor_name']),
-    #         waitlist_position=row['waitlist_position']
-    #     )
-        waitlist_list.append(waitlist_info)
+        # Get waitlist information
+        if item['current_enroll'] > item['max_enroll']:
+            current_enroll = item['max_enroll']
+            waitlist = item['current_enroll'] - item['max_enroll']
+        else:
+            current_enroll = item['current_enroll']
+            waitlist = 0
+        # Create the class instance
+        waitlist_list = Class_Enroll(
+            id=item['id'],
+            name=item['name'],
+            course_code=item['course_code'],
+            section_number=item['section_number'],
+            current_enroll=current_enroll,
+            max_enroll=item['max_enroll'],
+            department=item['department'],
+            instructor=Instructor(id=item['instructor_id'], name=result['Items'][0]['name']),
+            current_waitlist=waitlist,
+
+        )
+        waitlist_list.append(class_instance)
+
 
     return {"Waitlists": waitlist_list}
 
