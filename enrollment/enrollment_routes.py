@@ -818,14 +818,39 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
         f'SELECT enrolled FROM {CLASS_TABLE} WHERE id = ?',[class_id]
     )
 
-    if not enroll_data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not enrolled in this class")
+    class_data = get_table_resource(db, CLASS_TABLE)
+
+    for item in enroll.get('Items', []):
+        enrolled_data = item.get('enrolled', [])
+        
+        if student_id in enrolled_data:
+            # Remove student_id from the enrolled list
+            enrolled_data.remove(student_id)
+
+            # Update DynamoDB with the modified enrolled list
+            class_data.update_item(
+                Key={'id': class_id},
+                UpdateExpression='SET enrolled = :enrolled',
+                ExpressionAttributeValues={':enrolled': enrolled_data}
+            )
+
+            print(f"Student {student_id} removed from enrolled list.")
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not enrolled in this class")
     
     # remove student from class
-    cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    reorder_placement(cursor, enroll_data['current_enroll'], enroll_data['placement'], class_id)
+    # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
+    # reorder_placement(cursor, enroll_data['current_enroll'], enroll_data['placement'], class_id)
 
-    db.commit()
+    # db.commit()
+    # Remove student from class in DynamoDB using delete_ite
+    
+    # class_data.update_item(
+    #     Key = {'id': class_id},
+    #     UpdateExpression = 'SET dropped = list_append(dropped, :student_id)',
+    #     ExpressionAttributeValues={':student_id': [student_id]}
+    # )
+   
 
     return {"Message" : "Student successfully dropped"}
 
