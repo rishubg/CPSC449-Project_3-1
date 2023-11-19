@@ -263,16 +263,16 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
     )
     
     # Remove student from dropped table if valid
-    if 'dropped' in class_data:
-        if student_id in class_data['dropped']:
-            class_data['dropped'].remove(student_id)
+    # if 'dropped' in class_data:
+    #     if student_id in class_data['dropped']:
+    #         class_data['dropped'].remove(student_id)
 
     # Check if the class is full, add student to waitlist if no
     ## code goes here
     if new_enrollment >= class_data.get('max_enroll', 0):
         # freeze is in place
         if not FREEZE:
-            waitlist_count = get_waitlist_count(student_id)
+            waitlist_count = Waitlist.get_waitlist_count(student_id)
             if waitlist_count < MAX_WAITLIST and new_enrollment < class_data.get('max_enroll', 0) + 15:
                 user_table.update_item(
                     Key={'id': student_id},
@@ -335,29 +335,39 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
 
     ### working on this ####
-    # get enrollment data
+    # get class data for enrollment
     student_enrollment = wrapper.run_partiql(
         f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
         [class_id]
     )
-    # check for enrollment 
+
+    # check student in enrollment 
     for item in student_enrollment['Items']:
         if student_id not in item['enrolled']:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
+        
+    # get student enrolled
+    enroll = wrapper.run_partiql(
+        f'SELECT enrolled from "{CLASS_TABLE}" WHERE id=?',
+        [class_id]
+    )
 
     # remove student from class
-    if 'enrolled' in class_data:
-        if student_id in class_data['enrolled']:
-            class_data['enrolled'].remove(student_id)
+    for item in enroll.get('Items'):
+        student_enrolled = item.get('enrolled')
+        if student_id in student_enrolled:
+            student_enrolled.remove(student_id)
 
-    # update dropped table
-    class_table.update_item(
-        Key={
-            'id': class_id
-        },
-        UpdateExpression='SET dropped = list_append(dropped, :student_id)',
-        ExpressionAttributeValues={':student_id': [student_id]}
-    )
+            # update dropped table 
+            class_table.update_item(
+                Key={
+                    'id': class_id
+                },
+                UpdateExpression='SET dropped = list_append(dropped, :student_enrolled)',
+                ExpressionAttributeValues={':student_enrolled': student_enrolled}
+            )
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student already dropped")
     
     return {"message": "Student successfully dropped class"}
 
@@ -401,7 +411,7 @@ def view_waiting_list(student_id: int, request: Request):
     for class_id, position in waitlist_data:
         # fertch class details
         student_waitlist_key = f"class:{class_id}:wailist"
-        class_details = r.hgetall(class_waitlist_key)
+        # class_details = r.hgetall(class_waitlist_key)
         waitlist_info = Waitlist_Info(
             # id="",
             # name="",
