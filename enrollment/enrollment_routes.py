@@ -335,40 +335,31 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
 
     ### working on this ####
-    # get class data for enrollment
-    student_enrollment = wrapper.run_partiql(
-        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',
+    # check enrollment
+    enrollment_data = wrapper.run_partiql(
+        f'SELECT enrolled FROM "{CLASS_TABLE}" WHERE id=?',
         [class_id]
     )
 
     # check student in enrollment 
-    for item in student_enrollment['Items']:
+    for item in enrollment_data['Items']:
         if student_id not in item['enrolled']:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
-        
-    # get student enrolled
-    enroll = wrapper.run_partiql(
-        f'SELECT enrolled from "{CLASS_TABLE}" WHERE id=?',
-        [class_id]
-    )
 
     # remove student from class
-    for item in enroll.get('Items', []):
-        student_enrolled = item.get('enrolled', [])
-        if student_id in student_enrolled:
-            student_enrolled.remove(student_id)
+    for item in enrollment_data['Items']:
+        enrolled_data = item['enrolled']
+        
+        if student_id in enrolled_data:
+            # Remove student_id from the enrolled list
+            enrolled_data.remove(student_id)
 
-            # update dropped table 
+            # Update DynamoDB with the modified dropped list
             class_table.update_item(
-                Key={
-                    'id': class_id
-                },
-                UpdateExpression='SET dropped = list_append(dropped, :student_enrolled)',
-                ExpressionAttributeValues={':student_enrolled': student_enrolled}
+                Key={'id': class_id},
+                UpdateExpression='SET dropped = list_append(dropped, :enrolled_data)',
+                ExpressionAttributeValues={':enrolled_data': enrolled_data}
             )
-            print(f"Student {student_id} removed from enrolled list.")
-        else:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student already dropped")
     
     return {"message": "Student successfully dropped class"}
 
