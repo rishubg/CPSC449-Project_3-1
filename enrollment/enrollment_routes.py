@@ -314,16 +314,7 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
 
-    # check if exist
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM users
-    #     JOIN user_role ON users.uid = user_role.user_id
-    #     JOIN role ON user_role.role_id = role.rid
-    #     WHERE uid = ? AND role = ?
-    #     """, (student_id, 'student')
-    # )
-    # student_data = cursor.fetchone()
+    # fetch data for the suer
     user_table = get_table_resource(db, USER_TABLE)
     user_response = user_table.get_item(
         Key={
@@ -332,8 +323,7 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
     )
     student_data = user_response.get('Item')
 
-    # cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    # class_data = cursor.fetchone()
+    # fetch data for the class
     class_table = get_table_resource(db, CLASS_TABLE)
     class_response = class_table.get_item(
         Key={
@@ -341,37 +331,29 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
         }
     )
     class_data = class_response.get('Item')
-
+    
+    # Check if the class and student exists in the database
     if not student_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
 
-    #check enrollment
-    # cursor.execute("SELECT * FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    # enrollment_data = cursor.fetchone()
+    # fetch enrollment information
     enrollment_data = wrapper.run_partiql(
         f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?',[class_id]
     )
 
+    # fetch waitlist information
+    waitlist_data = Waitlist.is_student_on_waitlist(student_id, class_id)
 
-    # cursor.execute("""SELECT * FROM enrollment
-    #                 JOIN class ON enrollment.class_id = class.id
-    #                 WHERE enrollment.student_id = ? AND class_id = ?
-    #                 AND enrollment.placement > class.max_enroll""", (student_id, class_id))
-    # waitlist_data = cursor.fetchone()
-    # or waitlist_data:
+    # check if the student is enrolled or on the waitlist
     for item in enrollment_data['Items']:
-        if student_id not in item['enrolled']:
+        check_enroll = item.get('enrolled', [])
+        if student_id not in check_enroll or waitlist_data:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not enrolled in the class")
-        
-    enroll = wrapper.run_partiql(
-        f'SELECT enrolled FROM {CLASS_TABLE} WHERE id=?', [class_id]
-    )
-
+    
     # remove student from class
-    # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    # reorder_placement(cursor, class_data['current_enroll'], enrollment_data['placement'], class_id)
-    for item in enroll['Items']:
-        student_enroll = item['enrolled']
+    for item in enrollment_data['Items']:
+        # store the student that is enrolled
+        student_enroll = item.get('enrolled', [])
         if student_id in student_enroll:
             # remove student from enrolled
             student_enroll.remove(student_id)
@@ -385,16 +367,13 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
             )
 
     # Update dropped table
-    # cursor.execute(""" INSERT INTO dropped (class_id, student_id)
-    #                 VALUES (?, ?)""",(class_id, student_id))
-    # class_table.update_item(
-    #     Key={
-    #         'id': class_id
-    #     },
-    #     UpdateExpression='SET dropped = list_append(dropped, :student_id)',
-    #     ExpressionAttributeValues={':student_id': [student_id]}
-    # )
-    # db.commit()
+    class_table.update_item(
+        Key={
+            'id': class_id
+        },
+        UpdateExpression='SET dropped = list_append(dropped, :student_id)',
+        ExpressionAttributeValues={':student_id': [student_id]}
+    )
     
     return {"message": "Student successfully dropped class"}
 
