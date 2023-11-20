@@ -462,9 +462,9 @@ def view_waiting_list(student_id: int, request: Request):
         )
         # get waitlist information
         waitlist_info = Waitlist_Student(
-            id=item['class_id'],
-            name=item['class_name'],
-            course_code=item['course_code'],
+            id=item['id'],
+            name=item['name'],
+            course_code=item['cours e_code'],
             section_number=item['section_number'],
             department=item['department'],
             instructor=Instructor(id=item['instructor_id'], name=result['Items'][0]['name']),
