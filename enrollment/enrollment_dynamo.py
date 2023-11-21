@@ -19,7 +19,15 @@ class Enrollment:
         self.dyn_resource = dyn_resource
         # The table variable is set during the scenario in the call to
         # 'exists' if the table exists. Otherwise, it is set by 'create_table'.
-        self.table = None
+        if self.check_table_exists("enrollment_class"):
+            for table in self.dyn_resource.tables.all():
+                if table.name == "enrollment_class":
+                    self.classes = table
+                else:
+                    self.users = table
+        else:
+            self.classes = None
+            self.users = None
 
 
     def create_table(self, table_name):
@@ -30,20 +38,38 @@ class Enrollment:
         :return: The newly created table.
         """
         try:
-            self.table = self.dyn_resource.create_table(
-                TableName=table_prefix + table_name,
-                KeySchema=[
-                    {'AttributeName': 'id', 'KeyType': 'HASH'},  # Partition key
-                ],
-                AttributeDefinitions=[
-                    {'AttributeName': 'id', 'AttributeType': 'N'},
-                ],
-                ProvisionedThroughput={
-                    "ReadCapacityUnits": 10,
-                    "WriteCapacityUnits": 10,
-                },
-            )
-            self.table.wait_until_exists()
+            if table_name == "class":
+                self.classes = self.dyn_resource.create_table(
+                    TableName=table_prefix + table_name,
+                    KeySchema=[
+                        {'AttributeName': 'id', 'KeyType': 'HASH'},  # Partition key
+                    ],
+                    AttributeDefinitions=[
+                        {'AttributeName': 'id', 'AttributeType': 'N'},
+                    ],
+                    ProvisionedThroughput={
+                        "ReadCapacityUnits": 10,
+                        "WriteCapacityUnits": 10,
+                    },
+                )
+                self.classes.wait_until_exists()
+                table = self.classes
+            else:
+                self.users = self.dyn_resource.create_table(
+                    TableName=table_prefix + table_name,
+                    KeySchema=[
+                        {'AttributeName': 'id', 'KeyType': 'HASH'},  # Partition key
+                    ],
+                    AttributeDefinitions=[
+                        {'AttributeName': 'id', 'AttributeType': 'N'},
+                    ],
+                    ProvisionedThroughput={
+                        "ReadCapacityUnits": 10,
+                        "WriteCapacityUnits": 10,
+                    },
+                )
+                self.users.wait_until_exists()
+                table = self.users
         except ClientError as err:
             logger.error(
                 "Couldn't create table %s. Here's why: %s: %s",
@@ -53,7 +79,7 @@ class Enrollment:
             )
             raise
         else:
-            return self.table
+            return table
     
 
     def delete_table(self, table_name):
@@ -83,12 +109,12 @@ class Enrollment:
         :param class_data: a class object.
         """
         try:
-            self.put_item(Item=dict(class_data))
+            self.classes.put_item(Item=dict(class_data))
         except ClientError as err:
             logger.error(
                 "Couldn't add class %s to table %s. Here's why: %s: %s",
                 class_data.id,
-                self.table.name,
+                self.classes.name,
                 err.response["Error"]["Code"],
                 err.response["Error"]["Message"],
             )
@@ -102,19 +128,19 @@ class Enrollment:
         :param user_data: a user object.
         """
         try:
-            self.put_item(Item=dict(user_data))
+            self.users.put_item(Item=dict(user_data))
         except ClientError as err:
             logger.error(
                 "Couldn't add class %s to table %s. Here's why: %s: %s",
                 user_data.id,
-                self.table.name,
+                self.users.name,
                 err.response["Error"]["Code"],
                 err.response["Error"]["Message"],
             )
             raise
 
 
-    def get_enrollment_item(self, id):
+    def get_class_item(self, id):
         """
         Gets item data from the table for a specific id.
 
@@ -122,12 +148,40 @@ class Enrollment:
         :return: The data about the requested item.
         """
         try:
-            response = self.table.get_item(Key={"id": id})
+            if DEBUG:
+                print("id: ", id)
+                print("table: ", self.classes)
+            response = self.classes.get_item(Key={"id": id})
         except ClientError as err:
             logger.error(
                 "Couldn't get movie %s from table %s. Here's why: %s: %s",
                 id,
-                self.table.name,
+                self.classes.name,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
+        else:
+            return response["Item"]
+    
+
+    def get_user_item(self, id):
+        """
+        Gets item data from the table for a specific id.
+
+        :param id: The integer id for the item.
+        :return: The data about the requested item.
+        """
+        try:
+            if DEBUG:
+                print("id: ", id)
+                print("table: ", self.users)
+            response = self.users.get_item(Key={"id": id})
+        except ClientError as err:
+            logger.error(
+                "Couldn't get movie %s from table %s. Here's why: %s: %s",
+                id,
+                self.users.name,
                 err.response["Error"]["Code"],
                 err.response["Error"]["Message"],
             )
