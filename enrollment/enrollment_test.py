@@ -9,7 +9,7 @@ from enrollment_redis import Waitlist
 from pprint import pprint
 
 # turn debug print statements on or off
-DEBUG = True
+DEBUG = False
 
 # Configure the logger
 logging.basicConfig(level=logging.INFO)
@@ -276,7 +276,7 @@ for index, class_data in enumerate(sample_classes, start = 1):
 # ---------------------------- Enrollment Initialization ----------------------------------------
 
 
-def create_database(enrollment, wrapper):
+def create_database(enrollment, wrapper, waitlist):
     classes = "class"
     users = "user"
     class_table = table_prefix + classes
@@ -333,16 +333,13 @@ def create_database(enrollment, wrapper):
     # initialize the redis db with waitlist information
     for enrollment_data in sample_enrollments:
         if enrollment_data.placement > 30:
-            Waitlist.add_waitlists(enrollment_data.class_id, enrollment_data.student_id)
+            waitlist.add_waitlists(enrollment_data.class_id, enrollment_data.student_id)
     
     # add student_id 1 to three different waitlists
     # Used for testing purposes so at least 1 student has max waitlists
-    Waitlist.add_waitlists(4, 1)
-    Waitlist.add_waitlists(8, 1)
-    Waitlist.add_waitlists(13, 1)
-
-    Waitlist.remove_student_from_waitlists(281, 12)
-    Waitlist.remove_student_from_waitlists(1, 8)
+    waitlist.add_waitlists(4, 1)
+    waitlist.add_waitlists(8, 1)
+    waitlist.add_waitlists(13, 1)
 
     if DEBUG:
         debug_class = []
@@ -363,8 +360,8 @@ def create_database(enrollment, wrapper):
             debug_user.append(output["Items"])
         print("\nUser Table: \n", debug_user)
 
-        all_class_waitlists = Waitlist.get_all_class_waitlists()
-        all_student_waitlists = Waitlist.get_all_student_waitlists()
+        all_class_waitlists = waitlist.get_all_class_waitlists()
+        all_student_waitlists = waitlist.get_all_student_waitlists()
 
         print("All Class Waitlists:", all_class_waitlists)
         print("All Student Waitlists:", all_student_waitlists)
@@ -374,6 +371,7 @@ if __name__ == "__main__":
     try:
         enrollment = Enrollment(dynamodb)
         wrapper = PartiQL(dynamodb)
-        create_database(enrollment, wrapper)
+        waitlist = Waitlist
+        create_database(enrollment, wrapper, waitlist)
     except Exception as e:
         print(f"Something went wrong with the database creation! Here's what: {e}")
