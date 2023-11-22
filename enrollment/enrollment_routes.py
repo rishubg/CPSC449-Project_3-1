@@ -826,44 +826,36 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
 #==========================================registrar==================================================
 # Create a new class
 @router.post("/registrar/classes/", tags=['Registrar'])
-def create_class(class_data: Class_Registrar, db: sqlite3.Connection = Depends(get_db)):
-    
-    try:
-        # cursor = db.cursor()
+def create_class(class_data: Class_Registrar):
 
-        # cursor.execute(
-        #     """
-        #     INSERT INTO class (name, course_code, section_number, current_enroll, max_enroll, department_id)
-        #     VALUES (?, ?, ?, ?, ?, ?)
-        #     """,
-        #     (
-        #         class_data.name,
-        #         class_data.course_code,
-        #         class_data.section_number,
-        #         class_data.current_enroll,
-        #         class_data.max_enroll,
-        #         class_data.department_id,
-        #     )
-        # )
-        
-        # Get the last inserted row id (the id of the newly created class)
-        class_id = cursor.lastrowid
+    db = get_dynamodb()
 
-        cursor.execute(
-            """
-            INSERT INTO instructor_class (instructor_id, class_id)
-            VALUES (?, ?)
-            """,
-            (
-                class_data.instructor_id,
-                class_id,
-            )
+    class_table = get_table_resource(db, CLASS_TABLE)
+
+    existing_class = class_table.get_item(Key={'id': class_data.id})
+
+    if existing_class.get("Item"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Class with ID {class_data.id} already exists"
         )
-        db.commit()
 
-        # Construct the response JSON object
+    class_items = {
+        'id': class_data.id,
+        'name': class_data.name,
+        'course_code': class_data.course_code,
+        'section_number': class_data.section_number,
+        'current_enroll': class_data.current_enroll,
+        'max_enroll': class_data.max_enroll,
+        'department_id': class_data.department_id,
+        'instructor_id': class_data.instructor_id
+    }
+
+    try:
+        class_response = class_table.put_item(Item = class_items)
+
         response_data = {
-            "class_id": class_id,
+            'id': class_data.id,
             "name": class_data.name,
             "course_code": class_data.course_code,
             "section_number": class_data.section_number,
@@ -872,12 +864,12 @@ def create_class(class_data: Class_Registrar, db: sqlite3.Connection = Depends(g
             "department_id": class_data.department_id,
             "instructor_id": class_data.instructor_id
         }
-        
+
         return response_data
-    
-    except sqlite3.IntegrityError as e:
+
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"type": type(e).__name__, "msg": str(e)}
         )
 
