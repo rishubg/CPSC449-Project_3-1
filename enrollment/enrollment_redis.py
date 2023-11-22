@@ -19,11 +19,11 @@ class Waitlist:
         :param student_id: The integer id of a student.
         """
         # Fetch the current highest placement in the class waitlist
-        current_highest_placement = r.zrange(class_waitlist_key.format(class_id), -1, -1, withscores=True)
-    
+        current_highest_placement = r.zrevrange(class_waitlist_key.format(class_id), 0, 0, withscores=True)
+
         if current_highest_placement:
             # If the waitlist is not empty, increment the placement for the new student
-            new_placement = current_highest_placement[0][1] + 1
+            new_placement = int(current_highest_placement[0][1]) + 1
         else:
             # If the waitlist is empty, start from placement 1
             new_placement = 1
@@ -111,3 +111,20 @@ class Waitlist:
         """
         waitlists = r.hlen(student_waitlists_key.format(student_id))
         return waitlists
+    
+
+    def get_student_waitlist(student_id):
+        """
+        Returns an integer value of how many waitlists a student is currently on.
+
+        :param student_id: The integer id of a student.
+        :return: A dictionary of all waitlists the student is on,
+        user the following format: {class_id: placement}.
+        """
+        # Get the waitlist information for the student
+        waitlist_info_bytes = r.hgetall(student_waitlists_key.format(student_id))
+
+        # Convert placement values to integers for better usability
+        waitlist_info = {int(class_id.decode('utf-8')): int(placement.decode('utf-8')) for class_id, placement in waitlist_info_bytes.items()}
+
+        return waitlist_info

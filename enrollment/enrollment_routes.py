@@ -584,20 +584,21 @@ def get_instructor_enrollment(instructor_id: int, class_id: int, request: Reques
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 # ========================================================================================
+    # @ BRIEF: Getting the user table resource and using it to retrieve the instructors id
     user = get_table_resource(db, USER_TABLE)
     user_response = user.get_item(
         Key={"id": instructor_id}
     )
     instructor_data = user_response.get("Item")
-
-    classes = get_table_resource(db, CLASS_TABLE)
     
-    # Getting the Instructor class
+    # @BREIF: Getting the Instructor class
     classes = get_table_resource(db,CLASS_TABLE)
     class_response = classes.get_item(
         Key={'id': class_id}
     )
     class_data = class_response.get("Item")
+
+    # @BRIEF: FOllowing if statements check if both the instructor and class exist
 
     if not instructor_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or class not found")
@@ -606,14 +607,16 @@ def get_instructor_enrollment(instructor_id: int, class_id: int, request: Reques
     if not instructor_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or class not found")
 
-    # getting the instructor id and class id
+    # @ BREIF: getting the instructor id and class id to verify if instructor teaches certain class
     instructor_data = wrapper.run_partiql(
         f'SELECT * FROM {CLASS_TABLE} WHERE instructor_id = ? AND id = ?',[instructor_id, class_id]
     )
     
-    # checking if the instructor is assigned to class
+    # @ BREIF: Checks if the instructor data is not empty as well as the contents inside
     if 'Items' in instructor_data and instructor_data['Items']:
+        # Grabbing the first item in the list
         retrieved_instructor_id = instructor_data['Items'][0].get('instructor_id')
+        # varifies that the instructor id matches the one provided
         if retrieved_instructor_id == instructor_id:
             print("Instructor assigned to the class.")
         else:
@@ -630,12 +633,18 @@ def get_instructor_enrollment(instructor_id: int, class_id: int, request: Reques
         enrolled_data = enrolled_students['Items'][0].get('enrolled', [])
 
         enrolled_list = []
+
+        # Matches student id with name and print it out
         for student_id in enrolled_data:
             response = user.get_item(Key={'id': student_id})
             student_data = response.get("Item")
 
-            if student_data and 'name' in student_data:
-                enrolled_list.append(student_data['name'])
+            if student_data and 'id' in student_data and 'name' in student_data:
+                student_info = {
+                'id': student_data['id'],
+                'name': student_data['name'],
+            }
+            enrolled_list.append(student_info)
         return {"Enrolled": enrolled_list}
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class has no dropped students")
@@ -708,19 +717,21 @@ def get_instructor_dropped(instructor_id: int, class_id: int, request: Request):
         dropped_data = dropped_students['Items'][0].get('dropped', [])
 
         # Fetch user names for dropped students
-        user_table = get_table_resource(db, USER_TABLE)
         dropped_student_names = []
 
         for student_id in dropped_data:
-            response = user_table.get_item(Key={'id': student_id})
+            response = user.get_item(Key={'id': student_id})
             student_data = response.get("Item")
 
             # Check if the user with the given ID exists
-            if student_data and 'name' in student_data:
-                dropped_student_names.append(student_data['name'])
+            if student_data and 'id' in student_data and 'name' in student_data:
+                student_info = {
+                'id': student_data['id'],
+                'name': student_data['name'],
+            }
+            dropped_student_names.append(student_info)
     
         return {"Dropped": dropped_student_names}
-
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class has no dropped students")
 
@@ -749,32 +760,13 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    # cursor = db.cursor()
-
-    # #Check if exist
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM users
-    #     JOIN user_role ON users.uid = user_role.user_id
-    #     JOIN role ON user_role.role_id = role.rid
-    #     WHERE uid = ? AND role = ?
-    #     """, (instructor_id, 'instructor')
-    # )
     user = get_table_resource(db, USER_TABLE)
     user_response = user.get_item(
         Key={'id': instructor_id}
     )
     instructor_data = user_response.get('Item')
     
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM users
-    #     JOIN user_role ON users.uid = user_role.user_id
-    #     JOIN role ON user_role.role_id = role.rid
-    #     JOIN waitlist ON users.uid = waitlist.student_id
-    #     WHERE uid = ? AND role = ?
-    #     """, (student_id, 'student')
-    # )
+
     # student_data = cursor.fetchone()
     student = get_table_resource(db, USER_TABLE)
     user_response = student.get_item(
@@ -786,14 +778,6 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
     if not instructor_data or not student_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or student not found")
 
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM instructor_class
-    #     WHERE instructor_id = ? AND class_id = ?
-    #     """, (instructor_id, class_id)
-    # )
-    # instructor_class_data = cursor.fetchone()
-  # getting the instructor id and class id
     instructor_data = wrapper.run_partiql(
         f'SELECT * FROM {CLASS_TABLE} WHERE instructor_id = ? AND id = ?',[instructor_id, class_id]
     )
@@ -808,12 +792,6 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class not found or instructor not assigned to this class")
 
-    # cursor.execute("""SELECT * FROM enrollment
-    #                     JOIN class ON enrollment.class_id = class.id
-    #                     WHERE class_id = ? AND student_id = ?
-    #                 """,(class_id, student_id))
-    # enroll_data = cursor.fetchone()
-
     enroll = wrapper.run_partiql(
         f'SELECT enrolled FROM {CLASS_TABLE} WHERE id = ?',[class_id]
     )
@@ -827,58 +805,46 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
             # Remove student_id from the enrolled list
             enrolled_data.remove(student_id)
 
-            # Update DynamoDB with the modified enrolled list
-            class_data.update_item(
-                Key={'id': class_id},
-                UpdateExpression='SET enrolled = :enrolled',
-                ExpressionAttributeValues={':enrolled': enrolled_data}
-            )
-
-            print(f"Student {student_id} removed from enrolled list.")
+            try:
+                # Update DynamoDB with the modified enrolled list
+                class_data.update_item(
+                    Key={'id': class_id},
+                    UpdateExpression='SET enrolled = :enrolled',
+                    ExpressionAttributeValues={':enrolled': enrolled_data}
+                )
+                print(f"Student {student_id} removed from enrolled list.")
+            except Exception as e:
+                print(f"Error updating enrolled list: {e}")
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error updating enrolled list")
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not enrolled in this class")
-    
-    # remove student from class
-    # cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    # reorder_placement(cursor, enroll_data['current_enroll'], enroll_data['placement'], class_id)
-
-    # db.commit()
-    # Remove student from class in DynamoDB using delete_ite
-    
-    # class_data.update_item(
-    #     Key = {'id': class_id},
-    #     UpdateExpression = 'SET dropped = list_append(dropped, :student_id)',
-    #     ExpressionAttributeValues={':student_id': [student_id]}
-    # )
    
 
     return {"Message" : "Student successfully dropped"}
 
 
 #==========================================registrar==================================================
-
-
 # Create a new class
 @router.post("/registrar/classes/", tags=['Registrar'])
 def create_class(class_data: Class_Registrar, db: sqlite3.Connection = Depends(get_db)):
     
     try:
-        cursor = db.cursor()
+        # cursor = db.cursor()
 
-        cursor.execute(
-            """
-            INSERT INTO class (name, course_code, section_number, current_enroll, max_enroll, department_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                class_data.name,
-                class_data.course_code,
-                class_data.section_number,
-                class_data.current_enroll,
-                class_data.max_enroll,
-                class_data.department_id,
-            )
-        )
+        # cursor.execute(
+        #     """
+        #     INSERT INTO class (name, course_code, section_number, current_enroll, max_enroll, department_id)
+        #     VALUES (?, ?, ?, ?, ?, ?)
+        #     """,
+        #     (
+        #         class_data.name,
+        #         class_data.course_code,
+        #         class_data.section_number,
+        #         class_data.current_enroll,
+        #         class_data.max_enroll,
+        #         class_data.department_id,
+        #     )
+        # )
         
         # Get the last inserted row id (the id of the newly created class)
         class_id = cursor.lastrowid
