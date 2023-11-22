@@ -8,7 +8,7 @@ import redis
 
 from fastapi import Depends, HTTPException, APIRouter, status, Request
 from enrollment.enrollment_schemas import *
-from enrollment.enrollment_dynamo import PartiQL
+from enrollment.enrollment_dynamo import Enrollment, PartiQL
 from enrollment.enrollment_redis import Waitlist
 
 settings = Settings()
@@ -35,18 +35,20 @@ def get_db(logger: logging.Logger = Depends(get_logger)):
         yield db
 
 # Connect to DynamoDB
-def get_dynamodb():
-    return boto3.resource('dynamodb', endpoint_url='http://localhost:5500')
+dynamodb = boto3.resource('dynamodb', endpoint_url='http://localhost:5500')
 
 def get_table_resource(dynamodb, table_name):
     return dynamodb.Table(table_name)
 
 # Create wrapper for PartiQL queries
-def get_wrapper(dynamodb):
-    return PartiQL(dynamodb)
+wrapper = PartiQL(dynamodb)
 
 # Connect to Redis
 r = redis.Redis(db=1)
+
+# Create class items
+wl = Waitlist
+enrollment = Enrollment(dynamodb)
 
 # Called when a student is dropped from a class / waiting list
 # and the enrollment place must be reordered
@@ -89,14 +91,6 @@ logging.config.fileConfig(settings.enrollment_logging_config, disable_existing_l
 @router.get("/students/{student_id}/classes", tags=['Student']) 
 def get_available_classes(student_id: int, request: Request):
 
-    db = get_dynamodb()
-    # initialize the wrapper for partiql. There are two separate functions for partiql,
-    # run_partiql, and run_partiql_statement. Use run_partiql if you are using a statement and parameters.
-    # Use run_partiql_statement if you are just using a statement. Both are used in this endpoint if you
-    # need examples on how to use them. You may also look in the 'enrollment_dynamo.py' file for how it was
-    # implemented.
-    wrapper = get_wrapper(db)
-
     # User Authentication
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -115,21 +109,14 @@ def get_available_classes(student_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    user_table = get_table_resource(db, USER_TABLE)
     # Fetch student data from db
-    response = user_table.get_item(
-        Key={
-            'id': student_id
-        }
-    )
-
-    student_data = response.get('Item')
+    student_data = enrollment.get_user_item(student_id)
 
     #Check if exist
     if not student_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
     
-    waitlist_count = Waitlist.get_waitlist_count(student_id)
+    waitlist_count = wl.get_waitlist_count(student_id)
 
     # If max waitlist, don't show full classes with open waitlists
     if waitlist_count >= MAX_WAITLIST:
@@ -462,13 +449,8 @@ def view_waiting_list(student_id: int, request: Request):
         )
         # get waitlist information
         waitlist_info = Waitlist_Student(
-            id=item['id'],
-            name=item['name'],
-            course_code=item['cours e_code'],
-            section_number=item['section_number'],
-            department=item['department'],
-            instructor=Instructor(id=item['instructor_id'], name=result['Items'][0]['name']),
-            waitlist_position=item['waitlist_position']
+            class_id=row['class_id'],
+            waitlist_position=row['waitlist_position']
         )
         waitlist_list.append(waitlist_info)
     
