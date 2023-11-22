@@ -125,6 +125,28 @@ class Waitlist:
         waitlist_info_bytes = r.hgetall(student_waitlists_key.format(student_id))
 
         # Convert placement values to integers for better usability
-        waitlist_info = {int(class_id.decode('utf-8')): int(placement.decode('utf-8')) for class_id, placement in waitlist_info_bytes.items()}
+        waitlist_info = {
+            # int(class_id.decode('utf-8')): int(placement.decode('utf-8')) for class_id, placement in waitlist_info_bytes.items()
+                int(class_id.decode('utf-8')): float(placement.decode('utf-8')) if '.' in placement.decode('utf-8') else int(placement.decode('utf-8'))
+                for class_id, placement in waitlist_info_bytes.items()
+            }
 
+        return waitlist_info
+
+    def get_class_waitlist(class_id):
+        """
+        Returns an integer value of how many classes have a waitlist.
+
+        :param class_id: The integer id of a class.
+        :return: A dictionary of all classes with waitlists,
+        user the following format: {student_id: placement}.
+        """
+        # Get the waitlist information for the class
+        waitlist_info_bytes = r.hgetall(class_waitlist_key.format(class_id))
+
+        # Convert placement values to integers for better usability
+        waitlist_info = {
+            int(class_id.decode('utf-8')): float(placement.decode('utf-8')) if '.' in placement.decode('utf-8') else int(placement.decode('utf-8'))
+            for class_id, placement in waitlist_info_bytes.items()
+        }
         return waitlist_info

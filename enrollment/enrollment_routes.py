@@ -173,9 +173,9 @@ def get_available_classes(student_id: int, request: Request):
 # or will automatically put the student on an open waitlist for a full class
 @router.post("/students/{student_id}/classes/{class_id}/enroll", tags=['Student'])
 def enroll_student_in_class(student_id: int, class_id: int, request: Request):
-    
-    db = get_dynamodb() 
-    wrapper = get_wrapper(db)
+
+    class_table = get_table_resource(dynamodb, CLASS_TABLE)
+    user_table = get_table_resource(dynamodb, USER_TABLE)
 
     # User Authentication
     if request.headers.get("X-User"):
@@ -197,22 +197,10 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 
    # Fetch student data from db
-    user_table = get_table_resource(db,USER_TABLE)
-    response_1 = user_table.get_item(
-        Key={
-            'id': student_id
-        }
-    )
-    student_data = response_1.get('Item')
+    student_data = enrollment.get_user_item(student_id)
 
     # Fetch class data from db
-    class_table = get_table_resource(db, CLASS_TABLE)
-    response_2 = class_table.get_item(
-        Key={
-            'id': class_id
-        }
-    )
-    class_data = response_2.get('Item')
+    class_data = enrollment.get_class_item(class_id)
 
     # Check if the class and student exists in the database
     if not student_data or not class_data:
@@ -276,11 +264,7 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
         if not FREEZE:
             waitlist_count = Waitlist.get_waitlist_count(student_id)
             if waitlist_count < MAX_WAITLIST and new_enrollment < class_data.get('max_enroll', 0) + 15:
-                user_table.update_item(
-                    Key={'id': student_id},
-                    UpdateExpression='SET waitlist_count = if_not_exists(waitlist_count, :zero) + :waitlist_count',
-                    ExpressionAttributeValues={':zero': 0, ':waitlist_count': 1}
-                )
+                wl.add_waitlists(class_id, student_id)
                 return {"message": "Student added to the waitlist"}
             else:
                 return {"message": "Unable to add student to waitlist due to already having the maximum number of waitlists"}
@@ -293,9 +277,9 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
 # Have a student drop a class they're enrolled in
 @router.put("/students/{student_id}/classes/{class_id}/drop/", tags=['Student'])
 def drop_student_from_class(student_id: int, class_id: int, request: Request):
-    
-    db = get_dynamodb() 
-    wrapper = get_wrapper(db)
+
+    class_table = get_table_resource(dynamodb, CLASS_TABLE)
+    user_table = get_table_resource(dynamodb, USER_TABLE)
     
     # user authentication
     if request.headers.get("X-User"):
@@ -317,22 +301,10 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
     
 
     # fetch data for the suer
-    user_table = get_table_resource(db, USER_TABLE)
-    user_response = user_table.get_item(
-        Key={
-            'id': student_id
-        }
-    )
-    student_data = user_response.get('Item')
+    student_data = enrollment.get_user_item(student_id)
 
     # fetch data for the class
-    class_table = get_table_resource(db, CLASS_TABLE)
-    class_response = class_table.get_item(
-        Key={
-            'id': class_id
-        }
-    )
-    class_data = class_response.get('Item')
+    class_data = enrollment.get_class_item(class_id)
     
     # Check if the class and student exists in the database
     if not student_data or not class_data:
@@ -386,9 +358,6 @@ def drop_student_from_class(student_id: int, class_id: int, request: Request):
 # Get all waiting lists for a student
 @router.get("/waitlist/students/{student_id}", tags=['Waitlist'])
 def view_waiting_list(student_id: int, request: Request):
-
-    db = get_dynamodb() 
-    wrapper = get_wrapper(db)
     
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -407,71 +376,34 @@ def view_waiting_list(student_id: int, request: Request):
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    # Retrieve waitlist entries for the specified student from the databas
-    student_key = "student:{}:waitlists"
-    waitlist_data = r.zrange(student_key.format(student_id), 0, -1, withscores=True)
-
-    # cursor.execute("SELECT waitlist_count FROM waitlist WHERE student_id = ? AND waitlist_count > 0", (student_id,))
-    # waitlist_data = cursor.fetchall()
+    # Retrieve waitlist entries for the specified student from redis
+    waitlist_data = wl.get_student_waitlist(student_id)
 
     # Check if exist
     if not waitlist_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is not on a waitlist")  
 
     # fetch all relevant waitlist information for student
-    output = wrapper.run_partiql_statement(
-        f'SELECT * FROM "{CLASS_TABLE}" WHERE current_enroll >= max_enroll'
-    )
-    # cursor.execute("""
-    #     SELECT class.id AS class_id, class.name AS class_name, class.course_code,
-    #             class.section_number, department.id AS department_id,
-    #             department.name AS department_name,
-    #             users.uid AS instructor_id, users.name AS instructor_name,
-    #             enrollment.placement - class.max_enroll AS waitlist_position
-    #     FROM enrollment
-    #     JOIN class ON enrollment.class_id = class.id
-    #     JOIN users ON enrollment.student_id = users.uid
-    #     JOIN department ON class.department_id = department.id
-    #     JOIN instructor_class ON class.id = instructor_class.class_id
-    #     WHERE users.uid = ? AND class.current_enroll > class.max_enroll
-    #     """, (student_id,)
-    # )
-    # waitlist_data = cursor.fetchall()
+    student_class_id = waitlist_data.keys()
 
     # Create a list to store the Waitlist_Student instances
     waitlist_list = []
 
     # Iterate through the query results and create Waitlist_Student instances
-    for item in output['Items']:
-        result = wrapper.run_partiql(
-            f'SELECT * FROM "{USER_TABLE}" where_id=?',
-            [item['instructor_id']]
-        )
+    for cid in student_class_id:
         # get waitlist information
         waitlist_info = Waitlist_Student(
-            class_id=row['class_id'],
-            waitlist_position=row['waitlist_position']
+            class_id=cid,
+            waitlist_position=waitlist_data[cid]
         )
         waitlist_list.append(waitlist_info)
-    
-    # for row in waitlist_data:
-    #     waitlist_info = Waitlist_Student(
-    #         id=row['class_id'],
-    #         name=row['class_name'],
-    #         course_code=row['course_code'],
-    #         section_number=row['section_number'],
-    #         department=Department(id=row['department_id'], name=row['department_name']),
-    #         instructor=Instructor(id=row['instructor_id'], name=row['instructor_name']),
-    #         waitlist_position=row['waitlist_position']
-    #     )
-    #     waitlist_list.append(waitlist_info)
 
     return {"Waitlists": waitlist_list}
 
 
 # remove a student from a waiting list
 @router.put("/waitlist/students/{student_id}/classes/{class_id}/drop", tags=['Waitlist'])
-def remove_from_waitlist(student_id: int, class_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def remove_from_waitlist(student_id: int, class_id: int, request: Request):
     
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -490,45 +422,29 @@ def remove_from_waitlist(student_id: int, class_id: int, request: Request, db: s
             if current_user != student_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    cursor = db.cursor()
-    
-    # check if exist
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        WHERE uid = ? AND role = ?
-        """, (student_id, 'student')
-    )
-    student_data = cursor.fetchone()
+    # get student information
+    student_data = wl.get_student_waitlist(student_id)
 
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+    # check if student exists
+    if not student_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
 
-    if not student_data or not class_data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student or Class not found")
+    # get class information
+    student_class_id = student_data.keys()
 
-    cursor.execute("""SELECT class.current_enroll, enrollment.placement
-                    FROM enrollment 
-                    JOIN class ON enrollment.class_id = class.id
-                    JOIN users ON enrollment.student_id
-                    WHERE student_id = ? AND class_id = ?
-                    AND enrollment.placement > class.max_enroll
-                    """, (student_id, class_id))
-    waitlist_entry = cursor.fetchone()
+    # check if class exists
+    for id in student_class_id:
+        if class_id != id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
 
-    if waitlist_entry is None:
+    # check if the student is in the waitlist
+    student_wait = wl.is_student_on_waitlist(student_id, class_id)
+
+    if student_wait is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student is not on the waiting list for this class")
 
     # Delete student from waitlist enrollment
-    cursor.execute("DELETE FROM enrollment WHERE student_id = ? AND class_id = ?", (student_id, class_id))
-    cursor.execute("""UPDATE waitlist SET waitlist_count = waitlist_count - 1
-                    WHERE student_id = ?""", (student_id,))
-    
-    # Reorder enrollment placements
-    reorder_placement(cursor, waitlist_entry['current_enroll'], waitlist_entry['placement'], class_id)
-    db.commit()
+    wl.remove_student_from_waitlists(student_id, class_id)
 
     return {"message": "Student removed from the waiting list"}
 
