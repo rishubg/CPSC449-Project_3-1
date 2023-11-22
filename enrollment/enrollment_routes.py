@@ -279,7 +279,6 @@ def enroll_student_in_class(student_id: int, class_id: int, request: Request):
 def drop_student_from_class(student_id: int, class_id: int, request: Request):
 
     class_table = get_table_resource(dynamodb, CLASS_TABLE)
-    user_table = get_table_resource(dynamodb, USER_TABLE)
     
     # user authentication
     if request.headers.get("X-User"):
@@ -452,7 +451,7 @@ def remove_from_waitlist(student_id: int, class_id: int, request: Request):
 # Get a list of students on a waitlist for a particular class that
 # a specific instructor teaches
 @router.get("/waitlist/instructors/{instructor_id}/classes/{class_id}",tags=['Waitlist'])
-def view_current_waitlist(instructor_id: int, class_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
+def view_current_waitlist(instructor_id: int, class_id: int, request: Request):
     
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -471,34 +470,44 @@ def view_current_waitlist(instructor_id: int, class_id: int, request: Request, d
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    cursor = db.cursor()
+    # cursor = db.cursor()
+    # check if exist
 
-   # check if exist
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        WHERE uid = ? AND role = ?
-        """, (instructor_id, 'instructor')
-    )
-    instructor_data = cursor.fetchone()
+    # cursor.execute(
+    #     """
+    #     SELECT * FROM users
+    #     JOIN user_role ON users.uid = user_role.user_id
+    #     JOIN role ON user_role.role_id = role.rid
+    #     WHERE uid = ? AND role = ?
+    #     """, (instructor_id, 'instructor')
+    # )
+    # instructor_data = cursor.fetchone()
 
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+    # cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
+    # class_data = cursor.fetchone()
+    instructor_data = enrollment.get_class_item(instructor_id)
+    class_data = enrollment.get_class_item(class_id)
 
     if not instructor_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor or Class not found")  
 
-    cursor.execute(
-        """
-        SELECT * FROM instructor_class
-        WHERE instructor_id = ? AND class_id = ?
-        """, (instructor_id, class_id)
+    # cursor.execute(
+    #     """
+    #     SELECT * FROM instructor_class
+    #     WHERE instructor_id = ? AND class_id = ?
+    #     """, (instructor_id, class_id)
+    # )
+    # instructor_class_data = cursor.fetchone()
+    instructor_data = wrapper.run_partiql(
+        f'SELECT * FROM {CLASS_TABLE} WHERE instructor_id = ? AND id = ?',[instructor_id, class_id]
     )
-    instructor_class_data = cursor.fetchone()
 
-    if not instructor_class_data:
+    # Grabbing the first item in the list
+    retrieved_instructor_id = instructor_data['Items'][0].get('instructor_id')
+    # varifies that the instructor id matches the one provided
+    if retrieved_instructor_id == instructor_id:
+        print("Instructor assigned to the class.")
+    else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instructor not assigned to this class")
     
     # fetch all relevant waitlist information for instructor
@@ -531,6 +540,14 @@ def view_current_waitlist(instructor_id: int, class_id: int, request: Request, d
             waitlist_position=row['waitlist_position']
         )
         waitlist_list.append(waitlist_info)
+
+    # for cid in student_class_id:
+    #     # get waitlist information
+    #     waitlist_info = Waitlist_Student(
+    #         class_id=cid,
+    #         waitlist_position=waitlist_data[cid]
+    #     )
+    #     waitlist_list.append(waitlist_info)
 
     return {"Waitlist": waitlist_list}
 
