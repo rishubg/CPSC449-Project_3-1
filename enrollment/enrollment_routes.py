@@ -734,6 +734,7 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
+    # Getting instructor id
     user = get_table_resource(dynamodb, USER_TABLE)
     user_response = user.get_item(
         Key={'id': instructor_id}
@@ -741,7 +742,7 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
     instructor_data = user_response.get('Item')
     
 
-    # student_data = cursor.fetchone()
+    # Getting student id
     student = get_table_resource(dynamodb,USER_TABLE)
     user_response = student.get_item(
         Key={'id': student_id}
@@ -749,53 +750,44 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
     )
     student_data = user_response.get('Item')
 
+    # checks if both student and instructor exist in db
     if not instructor_data or not student_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or student not found")
 
-    instructor_data = wrapper.run_partiql(
-        f'SELECT * FROM {CLASS_TABLE} WHERE instructor_id = ? AND id = ?',[instructor_id, class_id]
+    # getting the enrolled and dropped list of student ids in class table db
+    class_data = wrapper.run_partiql(
+        f'SELECT enrolled, dropped FROM {CLASS_TABLE} WHERE id = ?',
+        [class_id]
     )
-    
-    # checking if the instructor is assigned to class
-    if 'Items' in instructor_data and instructor_data['Items']:
-        retrieved_instructor_id = instructor_data['Items'][0].get('instructor_id')
-        if retrieved_instructor_id == instructor_id:
-            print("Instructor assigned to the class.")
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instructor not assigned to this class")
+
+    # getting the first enrolled and dropped ids in the list
+    enrolled_data = class_data.get('Items', [])[0].get('enrolled', [])
+    dropped_data = class_data.get('Items', [])[0].get('dropped', [])
+
+    # Removes student_id from the enrolled list
+    if student_id in enrolled_data:
+        enrolled_data.remove(student_id)
+        print(f"Student {student_id} removed from enrolled list.")
     else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class not found or instructor not assigned to this class")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not enrolled in this class")
 
-    enroll = wrapper.run_partiql(
-        f'SELECT enrolled FROM {CLASS_TABLE} WHERE id = ?',[class_id]
-    )
+    # DynamoDB updated with the modified enrolled and dropped lists
+    try:
+        class_table = get_table_resource(dynamodb, CLASS_TABLE)
+        class_table.update_item(
+            Key={'id': class_id},
+            UpdateExpression='SET enrolled = :enrolled, dropped = :dropped',
+            ExpressionAttributeValues={
+                ':enrolled': enrolled_data,
+                ':dropped': dropped_data + [student_id] 
+            }
+        )
+        print(f"Student {student_id} added to dropped list.")
+    except Exception as e:
+        print(f"Error updating lists: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error updating lists")
 
-    class_data = get_table_resource(dynamodb,CLASS_TABLE)
-
-    for item in enroll.get('Items', []):
-        enrolled_data = item.get('enrolled', [])
-        
-        if student_id in enrolled_data:
-            # Remove student_id from the enrolled list
-            enrolled_data.remove(student_id)
-
-            try:
-                # Update DynamoDB with the modified enrolled list
-                class_data.update_item(
-                    Key={'id': class_id},
-                    UpdateExpression='SET enrolled = :enrolled',
-                    ExpressionAttributeValues={':enrolled': enrolled_data}
-                )
-                print(f"Student {student_id} removed from enrolled list.")
-            except Exception as e:
-                print(f"Error updating enrolled list: {e}")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error updating enrolled list")
-        else:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not enrolled in this class")
-   
-
-    return {"Message" : "Student successfully dropped"}
-
+    return {"Message": "Student successfully dropped"}
 
 #==========================================registrar==================================================
 # Create a new class
