@@ -432,9 +432,8 @@ def remove_from_waitlist(student_id: int, class_id: int, request: Request):
     student_class_id = student_data.keys()
 
     # check if class exists
-    for id in student_class_id:
-        if class_id != id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+    if class_id not in student_class_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
 
     # check if the student is in the waitlist
     student_wait = wl.is_student_on_waitlist(student_id, class_id)
