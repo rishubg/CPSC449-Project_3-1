@@ -469,85 +469,77 @@ def view_current_waitlist(instructor_id: int, class_id: int, request: Request):
         if r_flag:
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
+            
+    # Getting the instructors id
+    user = get_table_resource(dynamodb, USER_TABLE)
+    user_response = user.get_item(
+        Key={"id": instructor_id}
+    )
+    instructor_data = user_response.get("Item")
     
-    # cursor = db.cursor()
-    # check if exist
+    # Getting the Instructor class
+    classes = get_table_resource(dynamodb,CLASS_TABLE)
+    class_response = classes.get_item(
+        Key={'id': class_id}
+    )
+    class_data = class_response.get("Item")
 
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM users
-    #     JOIN user_role ON users.uid = user_role.user_id
-    #     JOIN role ON user_role.role_id = role.rid
-    #     WHERE uid = ? AND role = ?
-    #     """, (instructor_id, 'instructor')
-    # )
-    # instructor_data = cursor.fetchone()
-
-    # cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    # class_data = cursor.fetchone()
-    instructor_data = enrollment.get_class_item(instructor_id)
-    class_data = enrollment.get_class_item(class_id)
-
-    if not instructor_data or not class_data:
+    if not class_data or not instructor_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor or Class not found")  
-
-    # cursor.execute(
-    #     """
-    #     SELECT * FROM instructor_class
-    #     WHERE instructor_id = ? AND class_id = ?
-    #     """, (instructor_id, class_id)
-    # )
-    # instructor_class_data = cursor.fetchone()
+    
+    # fetch data from the instructor
     instructor_data = wrapper.run_partiql(
         f'SELECT * FROM {CLASS_TABLE} WHERE instructor_id = ? AND id = ?',[instructor_id, class_id]
     )
 
     # Grabbing the first item in the list
-    retrieved_instructor_id = instructor_data['Items'][0].get('instructor_id')
-    # varifies that the instructor id matches the one provided
-    if retrieved_instructor_id == instructor_id:
-        print("Instructor assigned to the class.")
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instructor not assigned to this class")
+    if 'Items' in instructor_data and instructor_data['Items']:
+        retrieved_instructor_id = instructor_data['Items'][0].get('instructor_id')
     
-    # fetch all relevant waitlist information for instructor
-    cursor.execute("""
-        SELECT enrollment.student_id AS student_id,
-        users.name AS student_name,
-        enrollment.placement - class.max_enroll AS waitlist_position
-        FROM enrollment
-        JOIN users ON enrollment.student_id = users.uid
-        JOIN class ON enrollment.class_id = class.id
-        JOIN instructor_class ON class.id = instructor_class.class_id
-        JOIN department ON class.department_id = department.id
-        WHERE instructor_class.instructor_id = ? AND class.id = ?
-        AND enrollment.placement > class.max_enroll
-        """, (instructor_id, class_id)
-    )
-    waitlist_data = cursor.fetchall()
+        # varifies that the instructor id matches the one provided
+        if retrieved_instructor_id != instructor_id:
+            # chcek if the instructor is assigned to the class
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instructor not assigned to this class")
 
-    #Check if exist
+    # Get the waitlist information for the class
+    class_waitlist_key = "class:{}:waitlist"
+    waitlist_data = r.zrange(class_waitlist_key.format(class_id), 0, -1, withscores=True)
+
+    # check if the waitlist class exists in redis
     if not waitlist_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Class does not have a waitlist")
 
     # Create a list to store the Waitlist_Instructor instances
     waitlist_list = []
 
-    # Iterate through the query results and create Waitlist_Instructor instances
-    for row in waitlist_data:
-        waitlist_info = Waitlist_Instructor(
-            student=Student(id=row['student_id'], name=row['student_name']),
-            waitlist_position=row['waitlist_position']
-        )
-        waitlist_list.append(waitlist_info)
+    # testing
+    #     # remove student from class
+    # for item in enrollment_data['Items']:
+    #     # store the student that is enrolled
+    #     student_enroll = item.get('enrolled', [])
+    #     if student_id in student_enroll:
 
-    # for cid in student_class_id:
-    #     # get waitlist information
-    #     waitlist_info = Waitlist_Student(
-    #         class_id=cid,
-    #         waitlist_position=waitlist_data[cid]
-    #     )
-    #     waitlist_list.append(waitlist_info)
+    # fetching the students name
+    output = wrapper.run_partiql(
+        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?', [class_id]
+    )
+
+    for item in output['Items']:
+        enrolled_students = item.get('enrolled', [])
+        # Iterate through the enrolled students and create Waitlist_Instructor instances
+        for student_id in enrolled_students:
+            result = wrapper.run_partiql(
+                f'SELECT * FROM "{USER_TABLE}" WHERE id=?', [student_id]
+            )
+            if 'Items' in result and result['Items']:
+                student_name = result['Items'][0]['name']
+                # Iterate through the query results and create Waitlist_Instructor instances
+                for cid, score in waitlist_data:
+                    waitlist_info = Waitlist_Instructor(
+                        student=Student(id=cid, name=student_name),
+                        waitlist_position=float(score) if '.' in str(score) else int(score)
+                    )
+                    waitlist_list.append(waitlist_info)
 
     return {"Waitlist": waitlist_list}
 
