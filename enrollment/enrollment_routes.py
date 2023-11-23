@@ -512,34 +512,28 @@ def view_current_waitlist(instructor_id: int, class_id: int, request: Request):
     # Create a list to store the Waitlist_Instructor instances
     waitlist_list = []
 
-    # testing
-    #     # remove student from class
-    # for item in enrollment_data['Items']:
-    #     # store the student that is enrolled
-    #     student_enroll = item.get('enrolled', [])
-    #     if student_id in student_enroll:
+    # Iterate through the query results and create Waitlist_Instructor instances
+    for student_id, score in waitlist_data:
+        # Convert binary data to integers
+        student_id = int(student_id.decode('utf-8'))
 
-    # fetching the students name
-    output = wrapper.run_partiql(
-        f'SELECT * FROM "{CLASS_TABLE}" WHERE id=?', [class_id]
-    )
+        # Fetch student name based on student ID
+        result = wrapper.run_partiql(
+            f'SELECT * FROM "{USER_TABLE}" WHERE id=?', [student_id]
+        )
 
-    for item in output['Items']:
-        enrolled_students = item.get('enrolled', [])
-        # Iterate through the enrolled students and create Waitlist_Instructor instances
-        for student_id in enrolled_students:
-            result = wrapper.run_partiql(
-                f'SELECT * FROM "{USER_TABLE}" WHERE id=?', [student_id]
-            )
-            if 'Items' in result and result['Items']:
-                student_name = result['Items'][0]['name']
-                # Iterate through the query results and create Waitlist_Instructor instances
-                for cid, score in waitlist_data:
-                    waitlist_info = Waitlist_Instructor(
-                        student=Student(id=cid, name=student_name),
-                        waitlist_position=float(score) if '.' in str(score) else int(score)
-                    )
-                    waitlist_list.append(waitlist_info)
+        # Check if the result has items and fetch the student name
+        if 'Items' in result and result['Items']:
+            student_name = result['Items'][0]['name']
+        else:
+            student_name = ""
+
+        # Create Waitlist_Instructor instance
+        waitlist_info = Waitlist_Instructor(
+            student=Student(id=student_id, name=student_name),
+            waitlist_position=float(score) if '.' in str(score) else int(score)
+        )
+        waitlist_list.append(waitlist_info)
 
     return {"Waitlist": waitlist_list}
 
