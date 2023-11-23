@@ -544,9 +544,6 @@ def view_current_waitlist(instructor_id: int, class_id: int, request: Request, d
 #view current enrollment for class
 @router.get("/instructors/{instructor_id}/classes/{class_id}/enrollment", tags=['Instructor'])
 def get_instructor_enrollment(instructor_id: int, class_id: int, request: Request):
-
-    db = get_dynamodb()
-    wrapper = get_wrapper(db)
     
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -566,21 +563,24 @@ def get_instructor_enrollment(instructor_id: int, class_id: int, request: Reques
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
 # ========================================================================================
     # @ BRIEF: Getting the user table resource and using it to retrieve the instructors id
-    user = get_table_resource(db, USER_TABLE)
+    user = get_table_resource(dynamodb,USER_TABLE)
+    classes = get_table_resource(dynamodb,CLASS_TABLE)
+
     user_response = user.get_item(
         Key={"id": instructor_id}
     )
     instructor_data = user_response.get("Item")
     
     # @BREIF: Getting the Instructor class
-    classes = get_table_resource(db,CLASS_TABLE)
+    classes = get_table_resource(dynamodb,CLASS_TABLE)
     class_response = classes.get_item(
         Key={'id': class_id}
     )
     class_data = class_response.get("Item")
+    # instructor_data = enrollment.get_class_item(instructor_id)
+    # class_data = enrollment.get_class_item(class_id)
 
     # @BRIEF: FOllowing if statements check if both the instructor and class exist
-
     if not instructor_data or not class_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor and/or class not found")
 
@@ -634,10 +634,6 @@ def get_instructor_enrollment(instructor_id: int, class_id: int, request: Reques
 #view students who have dropped the class
 @router.get("/instructors/{instructor_id}/classes/{class_id}/drop", tags=['Instructor'])
 def get_instructor_dropped(instructor_id: int, class_id: int, request: Request):
-    
-    # using dynamodb and wrapper method
-    db = get_dynamodb()
-    wrapper = get_wrapper(db)
 
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
@@ -657,14 +653,14 @@ def get_instructor_dropped(instructor_id: int, class_id: int, request: Request):
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     #============================================================================================
     # Getting the instructor id
-    user = get_table_resource(db, USER_TABLE)
+    user = get_table_resource(dynamodb, USER_TABLE)
     user_response = user.get_item(
         Key={'id': instructor_id}
     )
     instructor_data = user_response.get('Item')
 
     # Getting the Instructor class
-    classes = get_table_resource(db,CLASS_TABLE)
+    classes = get_table_resource(dynamodb,CLASS_TABLE)
     class_response = classes.get_item(
         Key={'id': class_id}
     )
@@ -721,9 +717,6 @@ def get_instructor_dropped(instructor_id: int, class_id: int, request: Request):
 @router.post("/instructors/{instructor_id}/classes/{class_id}/students/{student_id}/drop", tags=['Instructor'])
 def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, request: Request):
     
-    db = get_dynamodb()
-    wrapper = get_wrapper(db)
-    
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))
     
@@ -741,7 +734,7 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
             if current_user != instructor_id:
                 raise HTTPException(status_code=403, detail="Access forbidden, wrong user")
     
-    user = get_table_resource(db, USER_TABLE)
+    user = get_table_resource(dynamodb, USER_TABLE)
     user_response = user.get_item(
         Key={'id': instructor_id}
     )
@@ -749,7 +742,7 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
     
 
     # student_data = cursor.fetchone()
-    student = get_table_resource(db, USER_TABLE)
+    student = get_table_resource(dynamodb,USER_TABLE)
     user_response = student.get_item(
         Key={'id': student_id}
         # need waitlist info from reddis
@@ -777,7 +770,7 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
         f'SELECT enrolled FROM {CLASS_TABLE} WHERE id = ?',[class_id]
     )
 
-    class_data = get_table_resource(db, CLASS_TABLE)
+    class_data = get_table_resource(dynamodb,CLASS_TABLE)
 
     for item in enroll.get('Items', []):
         enrolled_data = item.get('enrolled', [])
@@ -809,9 +802,7 @@ def instructor_drop_class(instructor_id: int, class_id: int, student_id: int, re
 @router.post("/registrar/classes/", tags=['Registrar'])
 def create_class(class_data: Class_Registrar):
 
-    db = get_dynamodb()
-
-    class_table = get_table_resource(db, CLASS_TABLE)
+    class_table = get_table_resource(dynamodb,CLASS_TABLE)
 
     existing_class = class_table.get_item(Key={'id': class_data.id})
 
