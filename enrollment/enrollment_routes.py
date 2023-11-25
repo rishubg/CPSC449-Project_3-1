@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, APIRouter, status, Request
 from enrollment.enrollment_schemas import *
 from enrollment.enrollment_dynamo import Enrollment, PartiQL
 from enrollment.enrollment_redis import Waitlist
+from botocore.exceptions import ClientError
 
 settings = Settings()
 router = APIRouter()
@@ -885,69 +886,61 @@ def create_class(class_data: Class_Registrar):
         )
 
 
-# Remove a class
-@router.delete("/registrar/classes/{class_id}", tags=["Registrar"])
-def remove_class(class_id: int, db: sqlite3.Connection = Depends(get_db)):
+#Remove a Class
+@router.delete("/registrar/classes/{class_id}", tags=['Registrar'])
+def remove_class(class_id: int):
 
-    cursor = db.cursor()
+    try:
+        # Get class data from DynamoDB
+        class_data = enrollment.get_class_item(class_id)
 
-    # Check if the class exists in the database
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+        # If the class does not exist, raise 404 Not Found
+        if not class_data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
 
-    if not class_data:
+        # Delete the class from DynamoDB
+        enrollment.delete_class_item(class_id)
+
+        return {"message": "Class removed successfully"}
+
+    except ClientError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Class not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"type": type(e).name, "msg": str(e)}
         )
-
-    # Delete the class from the database
-    cursor.execute("DELETE FROM class WHERE id = ?", (class_id,))
-    db.commit()
-
-    return {"message": "Class removed successfully"}
-
 
 # Change the assigned instructor for a class
-@router.put(
-    "/registrar/classes/{class_id}/instructors/{instructor_id}", tags=["Registrar"]
-)
-def change_instructor(
-    class_id: int, instructor_id: int, db: sqlite3.Connection = Depends(get_db)
-):
-    cursor = db.cursor()
+@router.put("/registrar/classes/{class_id}/instructors/{instructor_id}", tags=['Registrar'])
+def change_instructor(class_id: int, instructor_id: int):
+    try:
+        # Check if the class exists
+        class_data = enrollment.get_class_item(class_id)
 
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+        # If the class does not exist, raise 404 Not Found
+        if not class_data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
 
-    if not class_data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Class not found"
+        # Check if the instructor exists
+        instructor_data = enrollment.get_user_item(instructor_id)  # Assuming 'get_user_item' is the correct method
+        if not instructor_data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor not found")
+
+        # Update the instructor for the class in DynamoDB
+        print(f"Updating Class '{class_id}' with instructor '{instructor_id}'.")
+        wrapper.run_partiql(
+            f'UPDATE "{enrollment.classes.name}" SET enrollment.instructor_id=? WHERE id=?',
+            [instructor_id, class_id],
         )
 
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        WHERE uid = ? AND role = ?
-        """,
-        (instructor_id, "instructor"),
-    )
-    instructor_data = cursor.fetchone()
+        return {"message": "Instructor changed successfully"}
 
-    if not instructor_data:
+    except HTTPException as e:
+        raise  # Reraise HTTPException to maintain status code and detail
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Instructor not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"type": type(e).__name__, "msg": str(e)}
         )
-
-    cursor.execute(
-        "UPDATE instructor_class SET instructor_id = ? WHERE class_id = ?",
-        (instructor_id, class_id),
-    )
-    db.commit()
-
-    return {"message": "Instructor changed successfully"}
-
 
 # Freeze enrollment for classes
 @router.put("/registrar/automatic-enrollment/freeze", tags=["Registrar"])
@@ -963,42 +956,37 @@ def freeze_automatic_enrollment():
 
 # Create a new user (used by the user service to duplicate user info)
 @router.post("/registrar/create_user", tags=["Registrar"])
-def create_user(user: Create_User, db: sqlite3.Connection = Depends(get_db)):
+def create_user(user: Create_User):
+    try:
+        # Check if the user already exists in DynamoDB
+        existing_user = enrollment.get_user_item(user.id)
 
-    if DEBUG:
-        print("username: ", user.name)
-        print("roles: ", user.roles)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"User with ID {user.id} already exists"
+            )
 
-    cursor = db.cursor()
+        # Create a new user in DynamoDB
+        user_roles = [{"role": role} for role in user.roles]
+        user_info = {
+            'id' : int,
+            'name': user.name,
+            'roles': user_roles,
+            # Add other attributes as needed
+        }
 
-    cursor.execute("INSERT INTO users (name) VALUES (?)", (user.name,))
+        enrollment.add_user(user_info)
 
-    for role in user.roles:
-        cursor.execute("SELECT rid FROM role WHERE role = ?", (role,))
-        rid = cursor.fetchone()
+        return {"Message": "User created successfully"}
 
-        cursor.execute(
-            """
-        SELECT * FROM users WHERE name = ?
-        """,
-            (user.name,),
+    except HTTPException as e:
+        raise  # Reraise HTTPException to maintain status code and detail
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"type": type(e).__name__, "msg": str(e)}
         )
-        user_data = cursor.fetchone()
-
-        if DEBUG:
-            print("User ID: ", user_data["uid"])
-
-        cursor.execute(
-            """
-            INSERT INTO user_role (user_id, role_id)
-            VALUES (?, ?)
-            """,
-            (user_data["uid"], rid["rid"]),
-        )
-
-    db.commit()
-
-    return {"Message": "user created successfully"}
 
 
 # ==========================================Test Endpoints==================================================
