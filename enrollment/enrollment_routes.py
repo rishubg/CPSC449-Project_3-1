@@ -887,64 +887,61 @@ def create_class(class_data: Class_Registrar):
 
 # Remove a class
 @router.delete("/registrar/classes/{class_id}", tags=["Registrar"])
-def remove_class(class_id: int, db: sqlite3.Connection = Depends(get_db)):
+def remove_class(class_id: int):
 
-    cursor = db.cursor()
+    # fetch the class data 
+    class_data = enrollment.get_class_item(class_id)
 
-    # Check if the class exists in the database
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
-
+    # check if the class exists in the database
     if not class_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Class not found"
         )
-
-    # Delete the class from the database
-    cursor.execute("DELETE FROM class WHERE id = ?", (class_id,))
-    db.commit()
+    
+    # fetch the enrollment table from the database
+    # delete the class
+    class_table = get_table_resource(dynamodb, CLASS_TABLE)
+    class_table.delete_item(
+        Key={
+            'id': class_id
+        }
+    )
 
     return {"message": "Class removed successfully"}
 
 
 # Change the assigned instructor for a class
-@router.put(
-    "/registrar/classes/{class_id}/instructors/{instructor_id}", tags=["Registrar"]
-)
-def change_instructor(
-    class_id: int, instructor_id: int, db: sqlite3.Connection = Depends(get_db)
-):
-    cursor = db.cursor()
+@router.put("/registrar/classes/{class_id}/instructors/{instructor_id}", tags=["Registrar"])
+def change_instructor(class_id: int, instructor_id: int):
 
-    cursor.execute("SELECT * FROM class WHERE id = ?", (class_id,))
-    class_data = cursor.fetchone()
+    # fetch class data
+    class_data = enrollment.get_class_item(class_id)
 
+    # check if the class exists in the database
     if not class_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Class not found"
         )
 
-    cursor.execute(
-        """
-        SELECT * FROM users
-        JOIN user_role ON users.uid = user_role.user_id
-        JOIN role ON user_role.role_id = role.rid
-        WHERE uid = ? AND role = ?
-        """,
-        (instructor_id, "instructor"),
-    )
-    instructor_data = cursor.fetchone()
+    # fetch instructor data
+    instructor_data = enrollment.get_user_item(instructor_id)
 
+    # check if the instructor exists in the data
     if not instructor_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Instructor not found"
         )
 
-    cursor.execute(
-        "UPDATE instructor_class SET instructor_id = ? WHERE class_id = ?",
-        (instructor_id, class_id),
+    # fetch the enrollment table from the database
+    # update the instructor to the new class 
+    class_table = get_table_resource(dynamodb, CLASS_TABLE)
+    class_table.update_item(
+        Key={
+            'id': class_id
+        },
+        UpdateExpression='SET instructor_id = :instructor_id',
+        ExpressionAttributeValues={':instructor_id': instructor_id}
     )
-    db.commit()
 
     return {"message": "Instructor changed successfully"}
 
