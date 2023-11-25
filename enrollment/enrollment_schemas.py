@@ -71,6 +71,7 @@ class Class_SQL(BaseModel):
     department_id: int
 
 class Class_Registrar(BaseModel):
+    id: int
     name: str
     course_code: str
     section_number: int
