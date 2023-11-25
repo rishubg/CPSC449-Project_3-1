@@ -103,7 +103,7 @@ logging.config.fileConfig(
 # gets available classes for a student
 @router.get("/students/{student_id}/classes", tags=["Student"])
 def get_available_classes(student_id: int, request: Request):
-
+    
     # User Authentication
     if request.headers.get("X-User"):
         current_user = int(request.headers.get("X-User"))

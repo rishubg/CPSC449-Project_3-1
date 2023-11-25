@@ -131,7 +131,7 @@ class Enrollment:
             self.users.put_item(Item=dict(user_data))
         except ClientError as err:
             logger.error(
-                "Couldn't add class %s to table %s. Here's why: %s: %s",
+                "Couldn't add user %s to table %s. Here's why: %s: %s",
                 user_data.id,
                 self.users.name,
                 err.response["Error"]["Code"],
@@ -152,17 +152,21 @@ class Enrollment:
                 print("id: ", id)
                 print("table: ", self.classes)
             response = self.classes.get_item(Key={"id": id})
+            # Check if the 'Item' key exists in the response
+            if "Item" in response:
+                return response["Item"]
+            else:
+                # If 'Item' key doesn't exist, the item doesn't exist in the table
+                return None
         except ClientError as err:
             logger.error(
-                "Couldn't get movie %s from table %s. Here's why: %s: %s",
+                "Couldn't get class %s from table %s. Here's why: %s: %s",
                 id,
                 self.classes.name,
                 err.response["Error"]["Code"],
                 err.response["Error"]["Message"],
             )
             raise
-        else:
-            return response["Item"]
     
 
     def get_user_item(self, id):
@@ -177,17 +181,57 @@ class Enrollment:
                 print("id: ", id)
                 print("table: ", self.users)
             response = self.users.get_item(Key={"id": id})
+            # Check if the 'Item' key exists in the response
+            if "Item" in response:
+                return response["Item"]
+            else:
+                # If 'Item' key doesn't exist, the item doesn't exist in the table
+                return None
         except ClientError as err:
             logger.error(
-                "Couldn't get movie %s from table %s. Here's why: %s: %s",
+                "Couldn't get user %s from table %s. Here's why: %s: %s",
                 id,
                 self.users.name,
                 err.response["Error"]["Code"],
                 err.response["Error"]["Message"],
             )
             raise
-        else:
-            return response["Item"]
+    
+
+    def delete_class_item(self, id):
+        """
+        Deletes a class from the class table.
+
+        :param id: The id of the class to be deleted.
+        """
+        try:
+            self.classes.delete_item(Key={"id": id})
+        except ClientError as err:
+            logger.error(
+                "Couldn't delete class %s. Here's why: %s: %s",
+                id,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
+    
+    
+    def delete_user_item(self, id):
+        """
+        Deletes a user from the user table.
+
+        :param id: The id of the user to be deleted.
+        """
+        try:
+            self.users.delete_item(Key={"id": id})
+        except ClientError as err:
+            logger.error(
+                "Couldn't delete user %s. Here's why: %s: %s",
+                id,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
     
 
     def check_table_exists(self, table_name):
