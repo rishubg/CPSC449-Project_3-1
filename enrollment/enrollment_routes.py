@@ -752,7 +752,7 @@ def get_instructor_dropped(instructor_id: int, class_id: int, request: Request):
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Class has no enrolled students",
+            detail="Class has no dropped students",
         )
 
 
